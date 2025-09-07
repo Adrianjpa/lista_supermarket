@@ -20,19 +20,28 @@ class ShoppingListAdapter extends TypeAdapter<ShoppingList> {
       name: fields[0] as String,
       archived: fields[1] as bool,
       colorValue: fields[2] as int,
-    );
+      budget: fields[5] as double,
+    )
+      ..createdAt = fields[3] as DateTime
+      ..updatedAt = fields[4] as DateTime;
   }
 
   @override
   void write(BinaryWriter writer, ShoppingList obj) {
     writer
-      ..writeByte(3)
+      ..writeByte(6)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
       ..write(obj.archived)
       ..writeByte(2)
-      ..write(obj.colorValue);
+      ..write(obj.colorValue)
+      ..writeByte(3)
+      ..write(obj.createdAt)
+      ..writeByte(4)
+      ..write(obj.updatedAt)
+      ..writeByte(5)
+      ..write(obj.budget);
   }
 
   @override

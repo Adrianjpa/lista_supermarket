@@ -11,12 +11,22 @@ class ShoppingList extends HiveObject {
   bool archived;
 
   @HiveField(2)
-  int colorValue; // Cor do card
+  int colorValue;
+
+  @HiveField(3)
+  DateTime createdAt; // <-- NOVO CAMPO ADICIONADO
+
+  @HiveField(4)
+  DateTime updatedAt; // <-- NOVO CAMPO ADICIONADO
+
+  @HiveField(5)
+  double budget; // <-- NOVO CAMPO ADICIONADO
 
   ShoppingList({
     required this.name,
     this.archived = false,
-    this.colorValue = 0xFF4CAF50, // Um verde padrão mais moderno
-  });
+    this.colorValue = 0xFF4CAF50, // Verde padrão
+    this.budget = 0.0, // Orçamento padrão é 0
+  })  : createdAt = DateTime.now(),
+        updatedAt = DateTime.now();
 }
-

@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:lista_supermarket/utils/pdf_generator.dart'; // Importa o nosso novo gerador de PDF
+import '../main.dart'; // Importa o main para aceder ao PremiumProvider
 import '../models/shopping_list.dart';
 import '../models/product.dart';
 
@@ -25,50 +28,82 @@ class _ProductsPageState extends State<ProductsPage> {
     currentList = listsBox.get(widget.listKey)!;
   }
 
-  // --- Funções de manipulação de produtos ---
+  void _updateListTimestamp() {
+    currentList.updatedAt = DateTime.now();
+    currentList.save();
+  }
+
   void _addProduct(Product newProduct) {
     productsBox.add(newProduct);
+    _updateListTimestamp();
   }
-  
-  void _updateProduct(Product product, String name, String description, double quantity, String unit, double price) {
+
+  void _updateProduct(Product product, String name, String description,
+      double quantity, String unit, double price) {
     product.name = name;
     product.description = description;
     product.quantity = quantity;
     product.unit = unit;
     product.price = price;
     product.save();
+    _updateListTimestamp();
   }
 
   void _toggleBought(Product product) {
     product.bought = !product.bought;
     product.save();
+    _updateListTimestamp();
   }
 
   void _deleteProduct(Product product) {
     product.delete();
+    _updateListTimestamp();
   }
 
-  // --- Funções de formatação e UI ---
   Color getTextColor(Color backgroundColor) {
-    return backgroundColor.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+    return backgroundColor.computeLuminance() > 0.5
+        ? Colors.black
+        : Colors.white;
   }
 
   String _formatCurrency(double value) {
-    // Calcula o total do item (preço * quantidade)
-    final totalValue = value;
-    return NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(totalValue);
+    return NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(value);
   }
 
   @override
   Widget build(BuildContext context) {
     final color = Color(currentList.colorValue);
     final textColor = getTextColor(color);
+    final isPremium = Provider.of<PremiumProvider>(context).isPremium;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(currentList.name),
         backgroundColor: color,
         foregroundColor: textColor,
+        actions: [
+          IconButton(
+            tooltip: 'Gerar PDF da Lista',
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            onPressed: () {
+              if (isPremium) {
+                final products = productsBox.values
+                    .where((p) => p.listKey == currentList.key)
+                    .toList();
+                generateAndSharePdf(currentList, products);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        'Esta é uma funcionalidade Premium! Ative no menu lateral.'),
+                    backgroundColor: Colors.amber,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            },
+          ),
+        ],
       ),
       body: ValueListenableBuilder(
         valueListenable: productsBox.listenable(),
@@ -91,17 +126,19 @@ class _ProductsPageState extends State<ProductsPage> {
               return Card(
                 color: product.bought
                     ? Colors.grey.shade300
-                    : Colors.white,
-                margin:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    : Theme.of(context).cardColor,
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 child: ListTile(
                   onTap: () => _showAddOrEditProductDialog(product: product),
                   title: Text(
                     product.name,
                     style: TextStyle(
                       fontSize: 16,
-                      decoration: product.bought ? TextDecoration.lineThrough : null,
-                      color: product.bought ? Colors.black54 : Colors.black,
+                      decoration:
+                          product.bought ? TextDecoration.lineThrough : null,
+                      color: product.bought
+                          ? Colors.grey.shade600
+                          : Theme.of(context).textTheme.bodyLarge?.color,
                     ),
                   ),
                   subtitle: Column(
@@ -110,11 +147,15 @@ class _ProductsPageState extends State<ProductsPage> {
                       if (product.description.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 4.0),
-                          child: Text(product.description, style: TextStyle(color: Colors.grey.shade600, fontStyle: FontStyle.italic)),
+                          child: Text(product.description,
+                              style: TextStyle(
+                                  color: Colors.grey.shade600,
+                                  fontStyle: FontStyle.italic)),
                         ),
                       Padding(
                         padding: const EdgeInsets.only(top: 4.0),
-                        child: Text("${product.quantity} ${product.unit} - ${_formatCurrency(totalItemPrice)} (${_formatCurrency(pricePerUnit)}/${product.unit})"),
+                        child: Text(
+                            "${product.quantity} ${product.unit} - ${_formatCurrency(totalItemPrice)} (${_formatCurrency(pricePerUnit)}/${product.unit})"),
                       ),
                     ],
                   ),
@@ -125,7 +166,8 @@ class _ProductsPageState extends State<ProductsPage> {
                     activeColor: color,
                   ),
                   trailing: IconButton(
-                    icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
+                    icon:
+                        Icon(Icons.delete_outline, color: Colors.red.shade400),
                     onPressed: () => _deleteProduct(product),
                   ),
                 ),
@@ -150,19 +192,19 @@ class _ProductsPageState extends State<ProductsPage> {
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController(text: product?.name);
     final descController = TextEditingController(text: product?.description);
-    final quantityController = TextEditingController(text: product?.quantity.toString() ?? '1');
-    
-    final priceString = product != null ? (product.price * 100).toStringAsFixed(0) : '0';
+    final quantityController =
+        TextEditingController(text: product?.quantity.toString() ?? '');
+
     final priceController = TextEditingController();
+
+    if (product != null && product.price > 0) {
+      final initialPriceValue = product.price * 100;
+      final formatter = NumberFormat("#,##0.00", "pt_BR");
+      priceController.text = formatter.format(initialPriceValue / 100);
+    }
 
     String selectedUnit = product?.unit ?? 'un';
     final List<String> units = ['un', 'kg', 'g', 'L', 'ml', 'fardo'];
-
-    // Define o valor inicial formatado no priceController
-    final initialPriceValue = double.tryParse(priceString) ?? 0.0;
-    final formatter = NumberFormat("#,##0.00", "pt_BR");
-    priceController.text = formatter.format(initialPriceValue / 100);
-
 
     showDialog(
       context: context,
@@ -180,12 +222,16 @@ class _ProductsPageState extends State<ProductsPage> {
                       TextFormField(
                         controller: nameController,
                         autofocus: true,
-                        decoration: const InputDecoration(labelText: 'Nome do Produto*'),
-                        validator: (value) => (value?.trim().isEmpty ?? true) ? 'Campo obrigatório' : null,
+                        decoration: const InputDecoration(
+                            labelText: 'Nome do Produto*'),
+                        validator: (value) => (value?.trim().isEmpty ?? true)
+                            ? 'Campo obrigatório'
+                            : null,
                       ),
                       TextFormField(
                         controller: descController,
-                        decoration: const InputDecoration(labelText: 'Descrição (opcional)'),
+                        decoration: const InputDecoration(
+                            labelText: 'Descrição (opcional)'),
                       ),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
@@ -194,8 +240,11 @@ class _ProductsPageState extends State<ProductsPage> {
                             flex: 2,
                             child: TextFormField(
                               controller: quantityController,
-                              decoration: const InputDecoration(labelText: 'Quantidade*'),
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: const InputDecoration(
+                                  labelText: 'Quantidade'),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -205,19 +254,24 @@ class _ProductsPageState extends State<ProductsPage> {
                               value: selectedUnit,
                               isExpanded: true,
                               items: units.map((String value) {
-                                return DropdownMenuItem<String>(value: value, child: Text(value));
+                                return DropdownMenuItem<String>(
+                                    value: value, child: Text(value));
                               }).toList(),
                               onChanged: (newValue) {
-                                setState(() { selectedUnit = newValue!; });
+                                setState(() {
+                                  selectedUnit = newValue!;
+                                });
                               },
                             ),
                           ),
                         ],
                       ),
-                       TextFormField(
+                      TextFormField(
                         controller: priceController,
-                        decoration: const InputDecoration(labelText: 'Preço (R\$)'),
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        decoration:
+                            const InputDecoration(labelText: 'Preço (R\$)'),
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
                           CurrencyInputFormatter(),
@@ -230,14 +284,19 @@ class _ProductsPageState extends State<ProductsPage> {
             },
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+            TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar')),
             TextButton(
               onPressed: () {
                 if (formKey.currentState!.validate()) {
                   final name = nameController.text;
                   final description = descController.text;
-                  final quantity = double.tryParse(quantityController.text.replaceAll(',', '.')) ?? 1.0;
-                  final priceText = priceController.text.replaceAll(RegExp(r'[^0-9]'), '');
+                  final quantity = double.tryParse(
+                          quantityController.text.replaceAll(',', '.')) ??
+                      1.0;
+                  final priceText =
+                      priceController.text.replaceAll(RegExp(r'[^0-9]'), '');
                   final price = (double.tryParse(priceText) ?? 0.0) / 100.0;
 
                   if (product == null) {
@@ -250,7 +309,8 @@ class _ProductsPageState extends State<ProductsPage> {
                       unit: selectedUnit,
                     ));
                   } else {
-                    _updateProduct(product, name, description, quantity, selectedUnit, price);
+                    _updateProduct(product, name, description, quantity,
+                        selectedUnit, price);
                   }
                   Navigator.pop(context);
                 }
@@ -279,7 +339,7 @@ class CurrencyInputFormatter extends TextInputFormatter {
         selection: TextSelection.collapsed(offset: 0),
       );
     }
-    
+
     double value = double.parse(digitsOnly);
     final formatter = NumberFormat("#,##0.00", "pt_BR");
     String newText = formatter.format(value / 100);
@@ -290,4 +350,3 @@ class CurrencyInputFormatter extends TextInputFormatter {
     );
   }
 }
-
