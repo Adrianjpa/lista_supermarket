@@ -1,0 +1,430 @@
+import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+
+import 'models/shopping_list.dart';
+import 'models/product.dart';
+import 'pages/products_page.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+
+  Hive.registerAdapter(ShoppingListAdapter());
+  Hive.registerAdapter(ProductAdapter());
+
+  await Hive.openBox<ShoppingList>('listsBox');
+  await Hive.openBox<Product>('productsBox');
+
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Lista Supermarket',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        useMaterial3: true,
+      ),
+      debugShowCheckedModeBanner: false,
+      home: const ListsPage(),
+    );
+  }
+}
+
+class ListsPage extends StatefulWidget {
+  const ListsPage({super.key});
+
+  @override
+  State<ListsPage> createState() => _ListsPageState();
+}
+
+class _ListsPageState extends State<ListsPage> {
+  final Box<ShoppingList> listsBox = Hive.box<ShoppingList>('listsBox');
+
+  // --- Funções de Manipulação de Listas ---
+  void _addList(String name) {
+    if (name.trim().isEmpty) return;
+    listsBox.add(ShoppingList(name: name.trim()));
+  }
+
+  void _editList(ShoppingList list, String newName) {
+    if (newName.trim().isEmpty) return;
+    list.name = newName.trim();
+    list.save();
+  }
+
+  void _deleteList(ShoppingList list) {
+    // Deletar também os produtos associados a esta lista
+    final productsBox = Hive.box<Product>('productsBox');
+    final productsToDelete = productsBox.values.where((p) => p.listKey == list.key).toList();
+    for (var product in productsToDelete) {
+      product.delete();
+    }
+    list.delete();
+  }
+
+  void _duplicateList(ShoppingList list) {
+    final productsBox = Hive.box<Product>('productsBox');
+    final newList = ShoppingList(
+        name: '${list.name} (Cópia)', colorValue: list.colorValue);
+    
+    listsBox.add(newList).then((value) {
+      // É crucial pegar a chave da nova lista (`newList.key`) APÓS ela ser adicionada
+      final newKey = newList.key;
+      final productsToCopy = productsBox.values.where((p) => p.listKey == list.key);
+      
+      for (var product in productsToCopy) {
+        productsBox.add(Product(
+            name: product.name,
+            listKey: newKey,
+            quantity: product.quantity,
+            price: product.price,
+            unit: product.unit,
+            bought: false // Itens da lista copiada vêm desmarcados
+            ));
+      }
+    });
+  }
+
+  void _changeListColor(ShoppingList list, Color color) {
+    list.colorValue = color.value;
+    list.save();
+  }
+
+  void _archiveList(ShoppingList list) {
+    list.archived = true;
+    list.save();
+  }
+
+  void _restoreList(ShoppingList list) {
+    list.archived = false;
+    list.save();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Minhas Listas'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.archive_outlined),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) =>
+                        ArchivedListsPage(onRestore: _restoreList)),
+              );
+            },
+          ),
+        ],
+      ),
+      body: ValueListenableBuilder(
+        valueListenable: listsBox.listenable(),
+        builder: (context, Box<ShoppingList> box, _) {
+          final activeLists = box.values.where((l) => !l.archived).toList();
+          if (activeLists.isEmpty) {
+            return const Center(
+                child: Text('Crie sua primeira lista de compras!'));
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(8),
+            itemCount: activeLists.length,
+            itemBuilder: (context, index) {
+              final list = activeLists[index];
+              return ShoppingListCard(
+                list: list,
+                onEdit: (newName) => _editList(list, newName),
+                onDelete: () => _deleteList(list),
+                onDuplicate: () => _duplicateList(list),
+                onArchive: () => _archiveList(list),
+                onChangeColor: (color) => _changeListColor(list, color),
+              );
+            },
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        child: const Icon(Icons.add),
+        onPressed: _showAddListDialog,
+      ),
+    );
+  }
+
+  void _showAddListDialog() {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Nova Lista'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Nome da lista'),
+          onSubmitted: (name) {
+            _addList(name);
+            Navigator.pop(context);
+          },
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () {
+                _addList(controller.text);
+                Navigator.pop(context);
+              },
+              child: const Text('Adicionar')),
+        ],
+      ),
+    );
+  }
+}
+
+// --- WIDGET DO CARD DA LISTA ---
+class ShoppingListCard extends StatelessWidget {
+  final ShoppingList list;
+  final Function(String) onEdit;
+  final VoidCallback onDelete;
+  final VoidCallback onDuplicate;
+  final VoidCallback onArchive;
+  final Function(Color) onChangeColor;
+
+  const ShoppingListCard({
+    super.key,
+    required this.list,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onDuplicate,
+    required this.onArchive,
+    required this.onChangeColor,
+  });
+
+  Color getTextColor(Color backgroundColor) {
+    return backgroundColor.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+  }
+
+  String _formatCurrency(double value) {
+    return NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Color(list.colorValue);
+    final textColor = getTextColor(color);
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => ProductsPage(listKey: list.key)));
+      },
+      child: Card(
+        color: color,
+        elevation: 4,
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: ValueListenableBuilder(
+            valueListenable: Hive.box<Product>('productsBox').listenable(),
+            builder: (context, Box<Product> productsBox, _) {
+              final products = productsBox.values.where((p) => p.listKey == list.key).toList();
+              final totalItems = products.length;
+              final boughtItems = products.where((p) => p.bought).length;
+              final progress = totalItems > 0 ? boughtItems / totalItems : 0.0;
+              final totalValue = products.fold<double>(0.0, (sum, p) => sum + (p.price * p.quantity));
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // --- LINHA DO TÍTULO E MENU ---
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          list.name,
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: textColor),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      _buildPopupMenu(context, textColor),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // --- INFORMAÇÕES DE VALOR E DATA ---
+                  Text(
+                    "Total estimado: ${_formatCurrency(totalValue)}",
+                    style: TextStyle(fontSize: 14, color: textColor.withOpacity(0.9)),
+                  ),
+                  const SizedBox(height: 16),
+                  // --- BARRA DE PROGRESSO E CONTAGEM ---
+                  Row(
+                    children: [
+                      Expanded(
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          backgroundColor: Colors.black.withOpacity(0.2),
+                          valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.surface),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        "$boughtItems / $totalItems",
+                        style: TextStyle(fontSize: 14, color: textColor, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+                  )
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPopupMenu(BuildContext context, Color iconColor) {
+    return PopupMenuButton<String>(
+      icon: Icon(Icons.more_vert, color: iconColor),
+      onSelected: (value) {
+        if (value == 'edit') _showEditDialog(context);
+        if (value == 'color') _showColorPicker(context);
+        if (value == 'duplicate') onDuplicate();
+        if (value == 'archive') onArchive();
+        if (value == 'delete') _showDeleteConfirmation(context);
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(value: 'edit', child: Row(children: [Icon(Icons.edit, size: 20), SizedBox(width: 8), Text('Renomear')])),
+        const PopupMenuItem(value: 'color', child: Row(children: [Icon(Icons.palette, size: 20), SizedBox(width: 8), Text('Alterar Cor')])),
+        const PopupMenuItem(value: 'duplicate', child: Row(children: [Icon(Icons.copy, size: 20), SizedBox(width: 8), Text('Duplicar')])),
+        const PopupMenuItem(value: 'archive', child: Row(children: [Icon(Icons.archive, size: 20), SizedBox(width: 8), Text('Arquivar')])),
+        const PopupMenuDivider(),
+        PopupMenuItem(value: 'delete', child: Row(children: [Icon(Icons.delete, size: 20, color: Colors.red), SizedBox(width: 8), Text('Excluir', style: TextStyle(color: Colors.red))])),
+      ],
+    );
+  }
+
+  void _showEditDialog(BuildContext context) {
+    final controller = TextEditingController(text: list.name);
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Renomear Lista'),
+        content: TextField(controller: controller, autofocus: true),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () {
+                onEdit(controller.text);
+                Navigator.pop(context);
+              },
+              child: const Text('Salvar')),
+        ],
+      ),
+    );
+  }
+
+  void _showColorPicker(BuildContext context) {
+    Color pickerColor = Color(list.colorValue);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Escolha uma cor'),
+        content: SingleChildScrollView(
+          child: BlockPicker(
+            pickerColor: pickerColor,
+            onColorChanged: (color) => pickerColor = color,
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            child: const Text('OK'),
+            onPressed: () {
+              onChangeColor(pickerColor);
+              Navigator.of(context).pop();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+   void _showDeleteConfirmation(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Confirmar Exclusão'),
+        content: Text('Deseja realmente excluir a lista "${list.name}" e todos os seus produtos? Esta ação não pode ser desfeita.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+          TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              onPressed: () {
+                onDelete();
+                Navigator.pop(context);
+              },
+              child: const Text('Excluir')),
+        ],
+      ),
+    );
+  }
+}
+
+// --- PÁGINA DE LISTAS ARQUIVADAS ---
+class ArchivedListsPage extends StatelessWidget {
+  final Function(ShoppingList) onRestore;
+  const ArchivedListsPage({super.key, required this.onRestore});
+
+  @override
+  Widget build(BuildContext context) {
+    final Box<ShoppingList> listsBox = Hive.box<ShoppingList>('listsBox');
+
+    Color getTextColor(Color backgroundColor) {
+      return backgroundColor.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Listas Arquivadas')),
+      body: ValueListenableBuilder(
+        valueListenable: listsBox.listenable(),
+        builder: (context, Box<ShoppingList> box, _) {
+          final archived = box.values.where((l) => l.archived).toList();
+          if (archived.isEmpty) {
+            return const Center(child: Text('Nenhuma lista arquivada.'));
+          }
+          return ListView.builder(
+            itemCount: archived.length,
+            itemBuilder: (context, index) {
+              final list = archived[index];
+              final color = Color(list.colorValue);
+              final textColor = getTextColor(color);
+
+              return Card(
+                color: color,
+                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: ListTile(
+                  title: Text(list.name, style: TextStyle(color: textColor)),
+                  trailing: IconButton(
+                    icon: Icon(Icons.unarchive, color: textColor),
+                    onPressed: () => onRestore(list),
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
