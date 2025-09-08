@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:intl/date_symbol_data_local.dart'; // <-- IMPORTAÇÃO ADICIONADA
+import 'package:intl/date_symbol_data_local.dart'; // <-- IMPORTAÇÃO CORRIGIDA
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -74,8 +74,6 @@ class ThemeProvider with ChangeNotifier {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // --- LINHA DE CÓDIGO CORRIGIDA ---
-  // Inicializa os dados de localização para formatação de data/hora.
   await initializeDateFormatting('pt_BR', null);
 
   await Hive.initFlutter();
@@ -172,18 +170,25 @@ class _ListsPageState extends State<ListsPage> {
     final productsBox = Hive.box<Product>('productsBox');
     final newList =
         ShoppingList(name: '${list.name} (Cópia)', colorValue: list.colorValue);
+
     listsBox.add(newList).then((value) {
       _updateListTimestamp(newList);
       final productsToCopy =
-          productsBox.values.where((p) => p.listKey == list.key);
+          productsBox.values.where((p) => p.listKey == list.key).toList();
+      // Ordena os produtos antes de os copiar para manter a mesma ordem
+      productsToCopy.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
       for (var product in productsToCopy) {
         productsBox.add(Product(
             name: product.name,
+            description: product.description,
             listKey: newList.key,
             quantity: product.quantity,
             price: product.price,
             unit: product.unit,
-            bought: false));
+            bought: false,
+            sortOrder: product.sortOrder // <-- CORREÇÃO APLICADA AQUI
+            ));
       }
     });
   }

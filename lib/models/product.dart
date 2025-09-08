@@ -23,7 +23,10 @@ class Product extends HiveObject {
   double price;
 
   @HiveField(6)
-  String description; // <-- NOVO CAMPO ADICIONADO
+  String description;
+
+  @HiveField(7)
+  int sortOrder; // <-- NOVO CAMPO ADICIONADO
 
   Product({
     required this.name,
@@ -32,7 +35,7 @@ class Product extends HiveObject {
     this.quantity = 1,
     this.unit = 'un',
     this.price = 0.0,
-    this.description = '', // <-- NOVO CAMPO NO CONSTRUTOR
+    this.description = '',
+    required this.sortOrder, // <-- NOVO CAMPO NO CONSTRUTOR
   });
 }
-

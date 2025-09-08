@@ -3,8 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'package:lista_supermarket/utils/pdf_generator.dart'; // Importa o nosso novo gerador de PDF
-import '../main.dart'; // Importa o main para aceder ao PremiumProvider
+import 'package:lista_supermarket/utils/pdf_generator.dart';
+import '../main.dart';
 import '../models/shopping_list.dart';
 import '../models/product.dart';
 
@@ -55,9 +55,58 @@ class _ProductsPageState extends State<ProductsPage> {
     _updateListTimestamp();
   }
 
-  void _deleteProduct(Product product) {
+  void _deleteProduct(Product product, {bool showUndo = false}) {
+    if (showUndo) {
+      final productCopy = Product(
+        name: product.name,
+        listKey: product.listKey,
+        sortOrder: product.sortOrder,
+        bought: product.bought,
+        description: product.description,
+        price: product.price,
+        quantity: product.quantity,
+        unit: product.unit,
+      );
+      ScaffoldMessenger.of(context)
+        ..removeCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('${product.name} removido.'),
+            action: SnackBarAction(
+              label: 'DESFAZER',
+              onPressed: () {
+                _addProduct(productCopy);
+              },
+            ),
+          ),
+        );
+    }
     product.delete();
     _updateListTimestamp();
+  }
+
+  void _onReorder(int oldIndex, int newIndex, List<Product> products) {
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+
+    final Product item = products.removeAt(oldIndex);
+    products.insert(newIndex, item);
+
+    // Atualiza a ordem de todos os produtos no Hive
+    for (int i = 0; i < products.length; i++) {
+      products[i].sortOrder = i;
+      products[i].save();
+    }
+    _updateListTimestamp();
+  }
+
+  // --- MELHORIA: FUNÇÃO CENTRALIZADA PARA CÁLCULO DE PREÇO ---
+  double _calculateTotalItemPrice(Product product) {
+    if (product.unit == 'g' || product.unit == 'ml') {
+      return (product.quantity / 1000) * product.price;
+    }
+    return product.quantity * product.price;
   }
 
   Color getTextColor(Color backgroundColor) {
@@ -90,6 +139,7 @@ class _ProductsPageState extends State<ProductsPage> {
                 final products = productsBox.values
                     .where((p) => p.listKey == currentList.key)
                     .toList();
+                products.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
                 generateAndSharePdf(currentList, products);
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -111,68 +161,55 @@ class _ProductsPageState extends State<ProductsPage> {
           final products =
               box.values.where((p) => p.listKey == currentList.key).toList();
 
+          products.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
           if (products.isEmpty) {
             return const Center(child: Text('Nenhum produto nesta lista.'));
           }
 
-          return ListView.builder(
-            padding: const EdgeInsets.only(bottom: 80),
-            itemCount: products.length,
-            itemBuilder: (context, index) {
-              final product = products[index];
-              final totalItemPrice = product.price * product.quantity;
-              final pricePerUnit = product.price;
+          final totalValue = products.fold<double>(
+              0.0, (sum, p) => sum + _calculateTotalItemPrice(p));
 
-              return Card(
-                color: product.bought
-                    ? Colors.grey.shade300
-                    : Theme.of(context).cardColor,
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: ListTile(
-                  onTap: () => _showAddOrEditProductDialog(product: product),
-                  title: Text(
-                    product.name,
-                    style: TextStyle(
-                      fontSize: 16,
-                      decoration:
-                          product.bought ? TextDecoration.lineThrough : null,
-                      color: product.bought
-                          ? Colors.grey.shade600
-                          : Theme.of(context).textTheme.bodyLarge?.color,
-                    ),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (product.description.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4.0),
-                          child: Text(product.description,
-                              style: TextStyle(
-                                  color: Colors.grey.shade600,
-                                  fontStyle: FontStyle.italic)),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4.0),
-                        child: Text(
-                            "${product.quantity} ${product.unit} - ${_formatCurrency(totalItemPrice)} (${_formatCurrency(pricePerUnit)}/${product.unit})"),
-                      ),
-                    ],
-                  ),
-                  isThreeLine: product.description.isNotEmpty,
-                  leading: Checkbox(
-                    value: product.bought,
-                    onChanged: (_) => _toggleBought(product),
-                    activeColor: color,
-                  ),
-                  trailing: IconButton(
-                    icon:
-                        Icon(Icons.delete_outline, color: Colors.red.shade400),
-                    onPressed: () => _deleteProduct(product),
-                  ),
+          return Column(
+            children: [
+              Expanded(
+                child: ReorderableListView.builder(
+                  padding: const EdgeInsets.only(bottom: 150),
+                  itemCount: products.length,
+                  onReorder: (oldIndex, newIndex) =>
+                      _onReorder(oldIndex, newIndex, products),
+                  itemBuilder: (context, index) {
+                    final product = products[index];
+                    return _buildProductItem(product, color);
+                  },
                 ),
-              );
-            },
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                    color: Theme.of(context).cardColor,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.1),
+                        blurRadius: 8,
+                        offset: const Offset(0, -2),
+                      )
+                    ]),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Total da Lista:',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    Text(_formatCurrency(totalValue),
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold)),
+                  ],
+                ),
+              )
+            ],
           );
         },
       ),
@@ -188,13 +225,109 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
+  Widget _buildProductItem(Product product, Color themeColor) {
+    // --- LÓGICA DE CÁLCULO CORRIGIDA ---
+    final totalItemPrice = _calculateTotalItemPrice(product);
+    final pricePerUnit = product.price;
+    String priceUnitLabel = product.unit;
+    if (product.unit == 'g') priceUnitLabel = 'kg';
+    if (product.unit == 'ml') priceUnitLabel = 'L';
+
+    final formattedQuantity = (product.quantity == product.quantity.truncate())
+        ? product.quantity.toInt().toString()
+        : product.quantity.toString();
+
+    return Dismissible(
+      key: ValueKey(product.key),
+      background: Container(
+        color: Colors.green,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        alignment: Alignment.centerLeft,
+        child: const Icon(Icons.check, color: Colors.white),
+      ),
+      secondaryBackground: Container(
+        color: Colors.red,
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        alignment: Alignment.centerRight,
+        child: const Icon(Icons.delete_forever, color: Colors.white),
+      ),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          _toggleBought(product);
+          return false;
+        } else {
+          _deleteProduct(product, showUndo: true);
+          return true;
+        }
+      },
+      child: Card(
+        key: ValueKey('card_${product.key}'),
+        color:
+            product.bought ? Colors.grey.shade300 : Theme.of(context).cardColor,
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: ListTile(
+          onTap: () => _showAddOrEditProductDialog(product: product),
+          leading: ReorderableDragStartListener(
+            index: productsBox.values
+                .where((p) => p.listKey == currentList.key)
+                .toList()
+                .indexOf(product),
+            child: const Icon(Icons.drag_handle),
+          ),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$formattedQuantity ${product.unit} - ${product.name}',
+                style: TextStyle(
+                  fontSize: 16,
+                  decoration:
+                      product.bought ? TextDecoration.lineThrough : null,
+                  color: product.bought
+                      ? Colors.grey.shade600
+                      : Theme.of(context).textTheme.bodyLarge?.color,
+                ),
+              ),
+              if (product.description.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4.0),
+                  child: Text(
+                    product.description,
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        fontStyle: FontStyle.italic),
+                  ),
+                ),
+            ],
+          ),
+          trailing: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                _formatCurrency(totalItemPrice),
+                style:
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+              if (product.price > 0)
+                Text(
+                  '${_formatCurrency(pricePerUnit)}/$priceUnitLabel',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                )
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showAddOrEditProductDialog({Product? product}) {
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController(text: product?.name);
     final descController = TextEditingController(text: product?.description);
     final quantityController =
         TextEditingController(text: product?.quantity.toString() ?? '');
-
     final priceController = TextEditingController();
 
     if (product != null && product.price > 0) {
@@ -213,6 +346,11 @@ class _ProductsPageState extends State<ProductsPage> {
           title: Text(product == null ? 'Novo Produto' : 'Editar Produto'),
           content: StatefulBuilder(
             builder: (BuildContext context, StateSetter setState) {
+              // --- MELHORIA: ETIQUETA DE PREÇO DINÂMICA ---
+              String priceLabel = 'Preço (R\$)';
+              if (selectedUnit == 'g') priceLabel = 'Preço (R\$/kg)';
+              if (selectedUnit == 'ml') priceLabel = 'Preço (R\$/L)';
+
               return Form(
                 key: formKey,
                 child: SingleChildScrollView(
@@ -233,26 +371,16 @@ class _ProductsPageState extends State<ProductsPage> {
                         decoration: const InputDecoration(
                             labelText: 'Descrição (opcional)'),
                       ),
+                      // --- MELHORIA: ORDEM DOS CAMPOS INVERTIDA ---
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Expanded(
-                            flex: 2,
-                            child: TextFormField(
-                              controller: quantityController,
-                              decoration: const InputDecoration(
-                                  labelText: 'Quantidade'),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                      decimal: true),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
                             flex: 1,
-                            child: DropdownButton<String>(
+                            child: DropdownButtonFormField<String>(
                               value: selectedUnit,
-                              isExpanded: true,
+                              decoration:
+                                  const InputDecoration(labelText: 'Unid.'),
                               items: units.map((String value) {
                                 return DropdownMenuItem<String>(
                                     value: value, child: Text(value));
@@ -264,12 +392,23 @@ class _ProductsPageState extends State<ProductsPage> {
                               },
                             ),
                           ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 2,
+                            child: TextFormField(
+                              controller: quantityController,
+                              decoration: const InputDecoration(
+                                  labelText: 'Quantidade'),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                      decimal: true),
+                            ),
+                          ),
                         ],
                       ),
                       TextFormField(
                         controller: priceController,
-                        decoration:
-                            const InputDecoration(labelText: 'Preço (R\$)'),
+                        decoration: InputDecoration(labelText: priceLabel),
                         keyboardType: const TextInputType.numberWithOptions(
                             decimal: true),
                         inputFormatters: [
@@ -299,6 +438,11 @@ class _ProductsPageState extends State<ProductsPage> {
                       priceController.text.replaceAll(RegExp(r'[^0-9]'), '');
                   final price = (double.tryParse(priceText) ?? 0.0) / 100.0;
 
+                  final currentProducts = productsBox.values
+                      .where((p) => p.listKey == currentList.key)
+                      .toList();
+                  final newSortOrder = currentProducts.length;
+
                   if (product == null) {
                     _addProduct(Product(
                       name: name,
@@ -307,6 +451,7 @@ class _ProductsPageState extends State<ProductsPage> {
                       quantity: quantity,
                       price: price,
                       unit: selectedUnit,
+                      sortOrder: newSortOrder,
                     ));
                   } else {
                     _updateProduct(product, name, description, quantity,
@@ -331,7 +476,6 @@ class CurrencyInputFormatter extends TextInputFormatter {
     if (newValue.text.isEmpty) {
       return newValue.copyWith(text: '');
     }
-
     String digitsOnly = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
     if (digitsOnly.isEmpty) {
       return const TextEditingValue(
@@ -339,11 +483,9 @@ class CurrencyInputFormatter extends TextInputFormatter {
         selection: TextSelection.collapsed(offset: 0),
       );
     }
-
     double value = double.parse(digitsOnly);
     final formatter = NumberFormat("#,##0.00", "pt_BR");
     String newText = formatter.format(value / 100);
-
     return TextEditingValue(
       text: newText,
       selection: TextSelection.collapsed(offset: newText.length),
