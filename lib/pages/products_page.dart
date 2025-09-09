@@ -7,6 +7,7 @@ import 'package:lista_supermarket/utils/pdf_generator.dart';
 import '../main.dart';
 import '../models/shopping_list.dart';
 import '../models/product.dart';
+import '../models/custom_suggestion.dart';
 
 class ProductsPage extends StatefulWidget {
   final int listKey;
@@ -20,6 +21,8 @@ class ProductsPage extends StatefulWidget {
 class _ProductsPageState extends State<ProductsPage> {
   final Box<Product> productsBox = Hive.box<Product>('productsBox');
   final Box<ShoppingList> listsBox = Hive.box<ShoppingList>('listsBox');
+  final Box<CustomSuggestion> suggestionsBox =
+      Hive.box<CustomSuggestion>('customSuggestionsBox');
   late ShoppingList currentList;
 
   @override
@@ -101,7 +104,6 @@ class _ProductsPageState extends State<ProductsPage> {
     _updateListTimestamp();
   }
 
-  // --- MELHORIA: FUNÇÃO CENTRALIZADA PARA CÁLCULO DE PREÇO ---
   double _calculateTotalItemPrice(Product product) {
     if (product.unit == 'g' || product.unit == 'ml') {
       return (product.quantity / 1000) * product.price;
@@ -226,7 +228,6 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   Widget _buildProductItem(Product product, Color themeColor) {
-    // --- LÓGICA DE CÁLCULO CORRIGIDA ---
     final totalItemPrice = _calculateTotalItemPrice(product);
     final pricePerUnit = product.price;
     String priceUnitLabel = product.unit;
@@ -337,7 +338,100 @@ class _ProductsPageState extends State<ProductsPage> {
     }
 
     String selectedUnit = product?.unit ?? 'un';
-    final List<String> units = ['un', 'kg', 'g', 'L', 'ml', 'fardo'];
+    // --- MELHORIA: ADICIONADO "PCT" À LISTA DE UNIDADES ---
+    final List<String> units = ['un', 'kg', 'g', 'L', 'ml', 'pct', 'fardo'];
+
+    final List<String> defaultSuggestions = [
+      'Arroz',
+      'Feijão',
+      'Lentilha',
+      'Grão-de-bico',
+      'Milho para pipoca',
+      'Farinha de Trigo',
+      'Farinha de Mandioca',
+      'Farinha de Rosca',
+      'Aveia',
+      'Macarrão Espaguete',
+      'Macarrão Parafuso',
+      'Macarrão Penne',
+      'Lasanha',
+      'Carne Bovina',
+      'Frango',
+      'Peixe',
+      'Carne de Porco',
+      'Linguiça',
+      'Salsicha',
+      'Ovos',
+      'Presunto',
+      'Queijo Mussarela',
+      'Queijo Prato',
+      'Requeijão',
+      'Leite',
+      'Iogurte',
+      'Manteiga',
+      'Margarina',
+      'Creme de Leite',
+      'Pão de Forma',
+      'Pão Francês',
+      'Biscoito Cream Cracker',
+      'Biscoito Recheado',
+      'Torrada',
+      'Óleo de Soja',
+      'Azeite',
+      'Vinagre',
+      'Sal',
+      'Açúcar',
+      'Café',
+      'Filtro de Café',
+      'Achocolatado',
+      'Maionese',
+      'Ketchup',
+      'Mostarda',
+      'Molho de Tomate',
+      'Extrato de Tomate',
+      'Milho em conserva',
+      'Ervilha em conserva',
+      'Atum em lata',
+      'Sardinha em lata',
+      'Alho',
+      'Cebola',
+      'Batata',
+      'Cenoura',
+      'Tomate',
+      'Alface',
+      'Brócolis',
+      'Couve-flor',
+      'Abobrinha',
+      'Berinjela',
+      'Limão',
+      'Laranja',
+      'Banana',
+      'Maçã',
+      'Mamão',
+      'Uva',
+      'Água Mineral',
+      'Refrigerante',
+      'Suco de caixinha',
+      'Cerveja',
+      'Detergente',
+      'Sabão em pó',
+      'Amaciante',
+      'Água Sanitária',
+      'Desinfetante',
+      'Limpador Multiuso',
+      'Esponja de aço',
+      'Saco de lixo',
+      'Sabonete',
+      'Shampoo',
+      'Condicionador',
+      'Creme dental',
+      'Escova de dentes',
+      'Papel higiênico',
+      'Desodorizante',
+    ];
+    final customSuggestions = suggestionsBox.values.map((s) => s.name).toList();
+    final allSuggestions =
+        {...customSuggestions, ...defaultSuggestions}.toList();
 
     showDialog(
       context: context,
@@ -346,7 +440,6 @@ class _ProductsPageState extends State<ProductsPage> {
           title: Text(product == null ? 'Novo Produto' : 'Editar Produto'),
           content: StatefulBuilder(
             builder: (BuildContext context, StateSetter setState) {
-              // --- MELHORIA: ETIQUETA DE PREÇO DINÂMICA ---
               String priceLabel = 'Preço (R\$)';
               if (selectedUnit == 'g') priceLabel = 'Preço (R\$/kg)';
               if (selectedUnit == 'ml') priceLabel = 'Preço (R\$/L)';
@@ -357,21 +450,44 @@ class _ProductsPageState extends State<ProductsPage> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      TextFormField(
-                        controller: nameController,
-                        autofocus: true,
-                        decoration: const InputDecoration(
-                            labelText: 'Nome do Produto*'),
-                        validator: (value) => (value?.trim().isEmpty ?? true)
-                            ? 'Campo obrigatório'
-                            : null,
+                      Autocomplete<String>(
+                        initialValue:
+                            TextEditingValue(text: product?.name ?? ''),
+                        fieldViewBuilder:
+                            (context, controller, focusNode, onFieldSubmitted) {
+                          nameController.text = controller.text;
+                          return TextFormField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            autofocus: true,
+                            decoration: const InputDecoration(
+                                labelText: 'Nome do Produto*'),
+                            validator: (value) =>
+                                (value?.trim().isEmpty ?? true)
+                                    ? 'Campo obrigatório'
+                                    : null,
+                            onChanged: (text) => nameController.text = text,
+                          );
+                        },
+                        optionsBuilder: (TextEditingValue textEditingValue) {
+                          if (textEditingValue.text == '') {
+                            return const Iterable<String>.empty();
+                          }
+                          return allSuggestions.where((String option) {
+                            return option
+                                .toLowerCase()
+                                .contains(textEditingValue.text.toLowerCase());
+                          });
+                        },
+                        onSelected: (String selection) {
+                          nameController.text = selection;
+                        },
                       ),
                       TextFormField(
                         controller: descController,
                         decoration: const InputDecoration(
                             labelText: 'Descrição (opcional)'),
                       ),
-                      // --- MELHORIA: ORDEM DOS CAMPOS INVERTIDA ---
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [

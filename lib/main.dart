@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:intl/date_symbol_data_local.dart'; // <-- IMPORTAÇÃO CORRIGIDA
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,7 +10,9 @@ import 'package:timeago/timeago.dart' as timeago;
 
 import 'models/shopping_list.dart';
 import 'models/product.dart';
+import 'models/custom_suggestion.dart';
 import 'pages/products_page.dart';
+import 'pages/suggestions_page.dart';
 
 // --- GESTOR DE ESTADO PREMIUM ---
 class PremiumProvider with ChangeNotifier {
@@ -82,9 +84,11 @@ void main() async {
 
   Hive.registerAdapter(ShoppingListAdapter());
   Hive.registerAdapter(ProductAdapter());
+  Hive.registerAdapter(CustomSuggestionAdapter());
 
   await Hive.openBox<ShoppingList>('listsBox');
   await Hive.openBox<Product>('productsBox');
+  await Hive.openBox<CustomSuggestion>('customSuggestionsBox');
 
   runApp(
     MultiProvider(
@@ -175,7 +179,6 @@ class _ListsPageState extends State<ListsPage> {
       _updateListTimestamp(newList);
       final productsToCopy =
           productsBox.values.where((p) => p.listKey == list.key).toList();
-      // Ordena os produtos antes de os copiar para manter a mesma ordem
       productsToCopy.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
 
       for (var product in productsToCopy) {
@@ -187,8 +190,7 @@ class _ListsPageState extends State<ListsPage> {
             price: product.price,
             unit: product.unit,
             bought: false,
-            sortOrder: product.sortOrder // <-- CORREÇÃO APLICADA AQUI
-            ));
+            sortOrder: product.sortOrder));
       }
     });
   }
@@ -279,6 +281,16 @@ class _ListsPageState extends State<ListsPage> {
                 premiumProvider.togglePremium(value);
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.lightbulb_outline),
+              title: const Text('Gerir Sugestões'),
+              subtitle: const Text('Adicione os seus produtos frequentes'),
+              onTap: () {
+                Navigator.pop(context); // Fecha o menu antes de navegar
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const SuggestionsPage()));
+              },
+            )
           ],
         ),
       ),
@@ -403,8 +415,12 @@ class ShoppingListCard extends StatelessWidget {
               final totalItems = products.length;
               final boughtItems = products.where((p) => p.bought).length;
               final progress = totalItems > 0 ? boughtItems / totalItems : 0.0;
-              final totalValue = products.fold<double>(
-                  0.0, (sum, p) => sum + (p.price * p.quantity));
+              final totalValue = products.fold<double>(0.0, (sum, p) {
+                if (p.unit == 'g' || p.unit == 'ml') {
+                  return sum + (p.price * (p.quantity / 1000));
+                }
+                return sum + (p.price * p.quantity);
+              });
               final budgetExceeded =
                   list.budget > 0 && totalValue > list.budget;
 
