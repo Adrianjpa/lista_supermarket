@@ -4,10 +4,12 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:lista_supermarket/utils/pdf_generator.dart';
+import 'package:lista_supermarket/widgets/price_history_chart.dart';
 import '../main.dart';
 import '../models/shopping_list.dart';
 import '../models/product.dart';
 import '../models/custom_suggestion.dart';
+import '../models/product_history.dart';
 
 class ProductsPage extends StatefulWidget {
   final int listKey;
@@ -111,6 +113,22 @@ class _ProductsPageState extends State<ProductsPage> {
     return product.quantity * product.price;
   }
 
+  List<PriceHistoryData> _getPriceHistory(Product currentProduct) {
+    final List<PriceHistoryData> history = [];
+    final allProducts = productsBox.values.where(
+        (p) => p.name.toLowerCase() == currentProduct.name.toLowerCase());
+
+    for (var product in allProducts) {
+      final list = listsBox.get(product.listKey);
+      if (list != null) {
+        history
+            .add(PriceHistoryData(price: product.price, date: list.updatedAt));
+      }
+    }
+    history.sort((a, b) => a.date.compareTo(b.date));
+    return history;
+  }
+
   Color getTextColor(Color backgroundColor) {
     return backgroundColor.computeLuminance() > 0.5
         ? Colors.black
@@ -182,7 +200,7 @@ class _ProductsPageState extends State<ProductsPage> {
                       _onReorder(oldIndex, newIndex, products),
                   itemBuilder: (context, index) {
                     final product = products[index];
-                    return _buildProductItem(product, color);
+                    return _buildProductItem(product, color, isPremium);
                   },
                 ),
               ),
@@ -227,7 +245,7 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
-  Widget _buildProductItem(Product product, Color themeColor) {
+  Widget _buildProductItem(Product product, Color themeColor, bool isPremium) {
     final totalItemPrice = _calculateTotalItemPrice(product);
     final pricePerUnit = product.price;
     String priceUnitLabel = product.unit;
@@ -302,24 +320,93 @@ class _ProductsPageState extends State<ProductsPage> {
                 ),
             ],
           ),
-          trailing: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.end,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                _formatCurrency(totalItemPrice),
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+              if (isPremium) _buildPriceComparisonBadge(product),
+              const SizedBox(width: 8),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _formatCurrency(totalItemPrice),
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  if (product.price > 0)
+                    Text(
+                      '${_formatCurrency(pricePerUnit)}/$priceUnitLabel',
+                      style:
+                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    )
+                ],
               ),
-              if (product.price > 0)
-                Text(
-                  '${_formatCurrency(pricePerUnit)}/$priceUnitLabel',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                )
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildPriceComparisonBadge(Product product) {
+    if (product.price == 0) return const SizedBox.shrink();
+
+    final history = _getPriceHistory(product);
+    if (history.length < 2) return const SizedBox.shrink();
+
+    final lastPrice = history[history.length - 2].price;
+    final currentPrice = product.price;
+
+    IconData icon;
+    Color color;
+
+    if (currentPrice < lastPrice) {
+      icon = Icons.arrow_downward;
+      color = Colors.green;
+    } else if (currentPrice > lastPrice) {
+      icon = Icons.arrow_upward;
+      color = Colors.red;
+    } else {
+      icon = Icons.remove;
+      color = Colors.grey;
+    }
+
+    return InkWell(
+      onTap: () => _showPriceHistoryDialog(product, history),
+      child: Chip(
+        avatar: Icon(icon, color: color, size: 16),
+        label: Text(_formatCurrency(currentPrice)),
+        backgroundColor: color.withOpacity(0.1),
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        labelPadding: const EdgeInsets.only(left: 2),
+        side: BorderSide(color: color.withOpacity(0.3)),
+      ),
+    );
+  }
+
+  void _showPriceHistoryDialog(
+      Product product, List<PriceHistoryData> history) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Histórico de Preços: ${product.name}'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: PriceHistoryChart(
+              history: history,
+              productName: product.name,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Fechar'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -338,7 +425,6 @@ class _ProductsPageState extends State<ProductsPage> {
     }
 
     String selectedUnit = product?.unit ?? 'un';
-    // --- MELHORIA: ADICIONADO "PCT" À LISTA DE UNIDADES ---
     final List<String> units = ['un', 'kg', 'g', 'L', 'ml', 'pct', 'fardo'];
 
     final List<String> defaultSuggestions = [

@@ -28,6 +28,9 @@ dependencies:
   # Funcionalidade Premium: PDF
   pdf: ^3.10.8
   printing: ^5.11.1
+  
+  # Funcionalidade Premium: Gráficos (Versão correta e estável)
+  fl_chart: ^0.68.0
 
 dev_dependencies:
   flutter_test:
@@ -41,7 +44,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   
-  # A secção de assets deve ter esta indentação exata.
-  # Fomos mais explícitos e declarámos o ficheiro diretamente.
   assets:
     - assets/icon/icon.png
+
