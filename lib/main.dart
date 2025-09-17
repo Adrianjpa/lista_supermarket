@@ -104,11 +104,19 @@ class MyApp extends StatelessWidget {
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
                 seedColor: Colors.green, brightness: Brightness.light),
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
             useMaterial3: true,
           ),
           darkTheme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
                 seedColor: Colors.green, brightness: Brightness.dark),
+            appBarTheme: const AppBarTheme(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
             useMaterial3: true,
           ),
           debugShowCheckedModeBanner: false,
@@ -403,7 +411,6 @@ class ShoppingListCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
-        // --- CORREÇÃO APLICADA AQUI ---
         Navigator.push(context,
             MaterialPageRoute(builder: (_) => ProductsPage(listKey: list.key)));
       },
@@ -718,7 +725,6 @@ class ArchivedListsPage extends StatelessWidget {
                   child: ListTile(
                     title: Text(list.name, style: TextStyle(color: textColor)),
                     onTap: () {
-                      // --- CORREÇÃO APLICADA AQUI ---
                       Navigator.push(
                           context,
                           MaterialPageRoute(
