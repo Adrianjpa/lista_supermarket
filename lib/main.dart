@@ -7,22 +7,22 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:flutter_svg/flutter_svg.dart';
 
 import 'models/shopping_list.dart';
 import 'models/product.dart';
 import 'models/custom_suggestion.dart';
 import 'pages/products_page.dart';
 import 'pages/suggestions_page.dart';
+import 'pages/splash_screen.dart';
 
-// --- GESTOR DE ESTADO PREMIUM ---
+// --- (O código dos Providers não mudou) ---
 class PremiumProvider with ChangeNotifier {
   bool _isPremium = false;
   bool get isPremium => _isPremium;
-
   PremiumProvider() {
     _loadPremiumStatus();
   }
-
   void _loadPremiumStatus() async {
     final prefs = await SharedPreferences.getInstance();
     _isPremium = prefs.getBool('isPremium') ?? false;
@@ -37,15 +37,12 @@ class PremiumProvider with ChangeNotifier {
   }
 }
 
-// --- GESTOR DE TEMA ---
 class ThemeProvider with ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.system;
   ThemeMode get themeMode => _themeMode;
-
   ThemeProvider() {
     _loadTheme();
   }
-
   void _loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
     final theme = prefs.getString('themeMode');
@@ -75,21 +72,15 @@ class ThemeProvider with ChangeNotifier {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   await initializeDateFormatting('pt_BR', null);
-
   await Hive.initFlutter();
-
   timeago.setLocaleMessages('pt_br', timeago.PtBrMessages());
-
   Hive.registerAdapter(ShoppingListAdapter());
   Hive.registerAdapter(ProductAdapter());
   Hive.registerAdapter(CustomSuggestionAdapter());
-
   await Hive.openBox<ShoppingList>('listsBox');
   await Hive.openBox<Product>('productsBox');
   await Hive.openBox<CustomSuggestion>('customSuggestionsBox');
-
   runApp(
     MultiProvider(
       providers: [
@@ -103,7 +94,6 @@ void main() async {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return Consumer<ThemeProvider>(
@@ -122,7 +112,7 @@ class MyApp extends StatelessWidget {
             useMaterial3: true,
           ),
           debugShowCheckedModeBanner: false,
-          home: const ListsPage(),
+          home: const SplashScreen(),
         );
       },
     );
@@ -131,7 +121,6 @@ class MyApp extends StatelessWidget {
 
 class ListsPage extends StatefulWidget {
   const ListsPage({super.key});
-
   @override
   State<ListsPage> createState() => _ListsPageState();
 }
@@ -264,13 +253,28 @@ class _ListsPageState extends State<ListsPage> {
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(
-                color: Colors.green,
-              ),
-              child: Text('Configurações',
-                  style: TextStyle(color: Colors.white, fontSize: 24)),
-            ),
+            DrawerHeader(
+                decoration: const BoxDecoration(
+                  color: Colors.green,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SvgPicture.asset(
+                      'assets/icon/icon.svg',
+                      height: 60,
+                      colorFilter:
+                          const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text('LISTA SUPERMARKET',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold)),
+                  ],
+                )),
             SwitchListTile(
               title: const Text('Modo Premium'),
               subtitle: const Text('Desbloqueia todas as funcionalidades'),
@@ -286,7 +290,7 @@ class _ListsPageState extends State<ListsPage> {
               title: const Text('Gerir Sugestões'),
               subtitle: const Text('Adicione os seus produtos frequentes'),
               onTap: () {
-                Navigator.pop(context); // Fecha o menu antes de navegar
+                Navigator.pop(context);
                 Navigator.push(context,
                     MaterialPageRoute(builder: (_) => const SuggestionsPage()));
               },
@@ -298,6 +302,8 @@ class _ListsPageState extends State<ListsPage> {
         valueListenable: listsBox.listenable(),
         builder: (context, Box<ShoppingList> box, _) {
           final activeLists = box.values.where((l) => !l.archived).toList();
+          activeLists.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
           if (activeLists.isEmpty) {
             return const Center(
                 child: Text('Crie a sua primeira lista de compras!'));
@@ -379,6 +385,7 @@ class ShoppingListCard extends StatelessWidget {
   });
 
   Color getTextColor(Color backgroundColor) {
+    if (backgroundColor == Colors.white) return Colors.black;
     return backgroundColor.computeLuminance() > 0.5
         ? Colors.black
         : Colors.white;
@@ -396,6 +403,7 @@ class ShoppingListCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: () {
+        // --- CORREÇÃO APLICADA AQUI ---
         Navigator.push(context,
             MaterialPageRoute(builder: (_) => ProductsPage(listKey: list.key)));
       },
@@ -612,6 +620,28 @@ class ShoppingListCard extends StatelessWidget {
         content: SingleChildScrollView(
           child: BlockPicker(
             pickerColor: Color(list.colorValue),
+            availableColors: const [
+              Colors.white,
+              Colors.red,
+              Colors.pink,
+              Colors.purple,
+              Colors.deepPurple,
+              Colors.indigo,
+              Colors.blue,
+              Colors.lightBlue,
+              Colors.cyan,
+              Colors.teal,
+              Colors.green,
+              Colors.lightGreen,
+              Colors.lime,
+              Colors.yellow,
+              Colors.amber,
+              Colors.orange,
+              Colors.deepOrange,
+              Colors.brown,
+              Colors.grey,
+              Colors.blueGrey,
+            ],
             onColorChanged: (color) {
               onChangeColor(color);
               Navigator.of(context).pop();
@@ -650,15 +680,16 @@ class ArchivedListsPage extends StatelessWidget {
   final Function(ShoppingList) onRestore;
   const ArchivedListsPage({super.key, required this.onRestore});
 
+  Color getTextColor(Color backgroundColor, BuildContext context) {
+    if (backgroundColor == Colors.white) return Colors.black;
+    return backgroundColor.computeLuminance() > 0.5
+        ? Colors.black
+        : Colors.white;
+  }
+
   @override
   Widget build(BuildContext context) {
     final Box<ShoppingList> listsBox = Hive.box<ShoppingList>('listsBox');
-
-    Color getTextColor(Color backgroundColor) {
-      return backgroundColor.computeLuminance() > 0.5
-          ? Colors.black
-          : Colors.white;
-    }
 
     return Scaffold(
       appBar: AppBar(title: const Text('Listas Arquivadas')),
@@ -666,24 +697,39 @@ class ArchivedListsPage extends StatelessWidget {
         valueListenable: listsBox.listenable(),
         builder: (context, Box<ShoppingList> box, _) {
           final archived = box.values.where((l) => l.archived).toList();
+          archived.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
           if (archived.isEmpty) {
             return const Center(child: Text('Nenhuma lista arquivada.'));
           }
           return ListView.builder(
+            padding: const EdgeInsets.all(8),
             itemCount: archived.length,
             itemBuilder: (context, index) {
               final list = archived[index];
               final color = Color(list.colorValue);
-              final textColor = getTextColor(color);
+              final textColor = getTextColor(color, context);
 
-              return Card(
-                color: color,
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: ListTile(
-                  title: Text(list.name, style: TextStyle(color: textColor)),
-                  trailing: IconButton(
-                    icon: Icon(Icons.unarchive, color: textColor),
-                    onPressed: () => onRestore(list),
+              return Opacity(
+                opacity: 0.7,
+                child: Card(
+                  color: color,
+                  margin: const EdgeInsets.symmetric(vertical: 6),
+                  child: ListTile(
+                    title: Text(list.name, style: TextStyle(color: textColor)),
+                    onTap: () {
+                      // --- CORREÇÃO APLICADA AQUI ---
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => ProductsPage(
+                                  listKey: list.key, isReadOnly: true)));
+                    },
+                    trailing: IconButton(
+                      tooltip: 'Restaurar Lista',
+                      icon: Icon(Icons.unarchive, color: textColor),
+                      onPressed: () => onRestore(list),
+                    ),
                   ),
                 ),
               );

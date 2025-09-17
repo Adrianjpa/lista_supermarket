@@ -13,8 +13,13 @@ import '../models/product_history.dart';
 
 class ProductsPage extends StatefulWidget {
   final int listKey;
+  final bool isReadOnly;
 
-  const ProductsPage({super.key, required this.listKey});
+  const ProductsPage({
+    super.key,
+    required this.listKey,
+    this.isReadOnly = false,
+  });
 
   @override
   State<ProductsPage> createState() => _ProductsPageState();
@@ -34,6 +39,7 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   void _updateListTimestamp() {
+    if (widget.isReadOnly) return;
     currentList.updatedAt = DateTime.now();
     currentList.save();
   }
@@ -91,6 +97,7 @@ class _ProductsPageState extends State<ProductsPage> {
   }
 
   void _onReorder(int oldIndex, int newIndex, List<Product> products) {
+    if (widget.isReadOnly) return;
     if (newIndex > oldIndex) {
       newIndex -= 1;
     }
@@ -98,7 +105,6 @@ class _ProductsPageState extends State<ProductsPage> {
     final Product item = products.removeAt(oldIndex);
     products.insert(newIndex, item);
 
-    // Atualiza a ordem de todos os produtos no Hive
     for (int i = 0; i < products.length; i++) {
       products[i].sortOrder = i;
       products[i].save();
@@ -121,8 +127,8 @@ class _ProductsPageState extends State<ProductsPage> {
     for (var product in allProducts) {
       final list = listsBox.get(product.listKey);
       if (list != null) {
-        history
-            .add(PriceHistoryData(price: product.price, date: list.updatedAt));
+        history.add(PriceHistoryData(
+            price: product.price, date: list.updatedAt, listName: list.name));
       }
     }
     history.sort((a, b) => a.date.compareTo(b.date));
@@ -192,30 +198,14 @@ class _ProductsPageState extends State<ProductsPage> {
 
           return Column(
             children: [
-              Expanded(
-                child: ReorderableListView.builder(
-                  padding: const EdgeInsets.only(bottom: 150),
-                  itemCount: products.length,
-                  onReorder: (oldIndex, newIndex) =>
-                      _onReorder(oldIndex, newIndex, products),
-                  itemBuilder: (context, index) {
-                    final product = products[index];
-                    return _buildProductItem(product, color, isPremium);
-                  },
-                ),
-              ),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 8,
-                        offset: const Offset(0, -2),
-                      )
-                    ]),
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    border: Border(
+                        bottom:
+                            BorderSide(color: Colors.grey.withOpacity(0.2)))),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -228,24 +218,40 @@ class _ProductsPageState extends State<ProductsPage> {
                             ?.copyWith(fontWeight: FontWeight.bold)),
                   ],
                 ),
-              )
+              ),
+              Expanded(
+                child: ReorderableListView.builder(
+                  padding: const EdgeInsets.only(bottom: 150, top: 8),
+                  itemCount: products.length,
+                  onReorder: (oldIndex, newIndex) =>
+                      _onReorder(oldIndex, newIndex, products),
+                  itemBuilder: (context, index) {
+                    final product = products[index];
+                    return _buildProductItem(
+                        product, isPremium, index, Key('${product.key}'));
+                  },
+                ),
+              ),
             ],
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        backgroundColor: color,
-        foregroundColor: textColor,
-        icon: const Icon(Icons.add),
-        label: const Text("Novo Produto"),
-        onPressed: () {
-          _showAddOrEditProductDialog();
-        },
-      ),
+      floatingActionButton: widget.isReadOnly
+          ? null
+          : FloatingActionButton.extended(
+              backgroundColor: color,
+              foregroundColor: textColor,
+              icon: const Icon(Icons.add),
+              label: const Text("Novo Produto"),
+              onPressed: () {
+                _showAddOrEditProductDialog();
+              },
+            ),
     );
   }
 
-  Widget _buildProductItem(Product product, Color themeColor, bool isPremium) {
+  Widget _buildProductItem(
+      Product product, bool isPremium, int index, Key key) {
     final totalItemPrice = _calculateTotalItemPrice(product);
     final pricePerUnit = product.price;
     String priceUnitLabel = product.unit;
@@ -256,93 +262,102 @@ class _ProductsPageState extends State<ProductsPage> {
         ? product.quantity.toInt().toString()
         : product.quantity.toString();
 
-    return Dismissible(
-      key: ValueKey(product.key),
-      background: Container(
-        color: Colors.green,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        alignment: Alignment.centerLeft,
-        child: const Icon(Icons.check, color: Colors.white),
-      ),
-      secondaryBackground: Container(
-        color: Colors.red,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        alignment: Alignment.centerRight,
-        child: const Icon(Icons.delete_forever, color: Colors.white),
-      ),
-      confirmDismiss: (direction) async {
-        if (direction == DismissDirection.startToEnd) {
-          _toggleBought(product);
-          return false;
-        } else {
-          _deleteProduct(product, showUndo: true);
-          return true;
-        }
-      },
-      child: Card(
-        key: ValueKey('card_${product.key}'),
-        color:
-            product.bought ? Colors.grey.shade300 : Theme.of(context).cardColor,
-        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: ListTile(
-          onTap: () => _showAddOrEditProductDialog(product: product),
-          leading: ReorderableDragStartListener(
-            index: productsBox.values
-                .where((p) => p.listKey == currentList.key)
-                .toList()
-                .indexOf(product),
-            child: const Icon(Icons.drag_handle),
-          ),
-          title: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '$formattedQuantity ${product.unit} - ${product.name}',
-                style: TextStyle(
-                  fontSize: 16,
-                  decoration:
-                      product.bought ? TextDecoration.lineThrough : null,
-                  color: product.bought
-                      ? Colors.grey.shade600
-                      : Theme.of(context).textTheme.bodyLarge?.color,
-                ),
-              ),
-              if (product.description.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4.0),
-                  child: Text(
-                    product.description,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey.shade600,
-                        fontStyle: FontStyle.italic),
+    return AbsorbPointer(
+      key: key,
+      absorbing: widget.isReadOnly,
+      child: Dismissible(
+        key: ValueKey('dismiss_${product.key}'),
+        background: Container(
+          color: Colors.green,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          alignment: Alignment.centerLeft,
+          child: const Icon(Icons.check, color: Colors.white),
+        ),
+        secondaryBackground: Container(
+          color: Colors.red,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          alignment: Alignment.centerRight,
+          child: const Icon(Icons.delete_forever, color: Colors.white),
+        ),
+        confirmDismiss: (direction) async {
+          if (direction == DismissDirection.startToEnd) {
+            _toggleBought(product);
+            return false;
+          } else {
+            _deleteProduct(product, showUndo: true);
+            return true;
+          }
+        },
+        child: Card(
+          color: product.bought
+              ? (Theme.of(context).brightness == Brightness.dark
+                  ? Colors.grey.shade800
+                  : Colors.grey.shade300)
+              : Theme.of(context).cardColor,
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: ListTile(
+            onTap: () {
+              if (!widget.isReadOnly)
+                _showAddOrEditProductDialog(product: product);
+            },
+            leading: ReorderableDragStartListener(
+              index: index,
+              child: Icon(Icons.drag_handle,
+                  color: widget.isReadOnly ? Colors.transparent : null),
+            ),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$formattedQuantity ${product.unit} - ${product.name}',
+                  style: TextStyle(
+                    fontSize: 16,
+                    decoration:
+                        product.bought ? TextDecoration.lineThrough : null,
+                    color: product.bought
+                        ? Colors.grey.shade600
+                        : Theme.of(context).textTheme.bodyLarge?.color,
                   ),
                 ),
-            ],
-          ),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (isPremium) _buildPriceComparisonBadge(product),
-              const SizedBox(width: 8),
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(
-                    _formatCurrency(totalItemPrice),
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16),
+                if (product.description.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4.0),
+                    child: Text(
+                      product.description,
+                      style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          fontStyle: FontStyle.italic),
+                    ),
                   ),
-                  if (product.price > 0)
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isPremium) _buildPriceComparisonBadge(product),
+                const SizedBox(width: 4),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
                     Text(
-                      '${_formatCurrency(pricePerUnit)}/$priceUnitLabel',
-                      style:
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                    )
-                ],
-              ),
-            ],
+                      _formatCurrency(totalItemPrice),
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Theme.of(context).textTheme.bodyLarge?.color),
+                    ),
+                    if (product.price > 0)
+                      Text(
+                        '${_formatCurrency(pricePerUnit)}/$priceUnitLabel',
+                        style: TextStyle(
+                            fontSize: 12, color: Colors.grey.shade600),
+                      )
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -352,50 +367,89 @@ class _ProductsPageState extends State<ProductsPage> {
   Widget _buildPriceComparisonBadge(Product product) {
     if (product.price == 0) return const SizedBox.shrink();
 
-    final history = _getPriceHistory(product);
-    if (history.length < 2) return const SizedBox.shrink();
+    final fullHistory = _getPriceHistory(product);
+    if (fullHistory.length < 2) return const SizedBox.shrink();
 
-    final lastPrice = history[history.length - 2].price;
+    final currentIndex = fullHistory.indexWhere(
+        (h) => h.date == currentList.updatedAt && h.price == product.price);
+
+    if (currentIndex == -1) return const SizedBox.shrink();
+
+    // Compara sempre com a compra imediatamente anterior.
+    if (currentIndex == 0) return const SizedBox.shrink();
+
+    final priceToCompare = fullHistory[currentIndex - 1].price;
     final currentPrice = product.price;
+    final difference = currentPrice - priceToCompare;
 
     IconData icon;
     Color color;
+    String diffText;
 
-    if (currentPrice < lastPrice) {
+    if (difference < -0.001) {
       icon = Icons.arrow_downward;
       color = Colors.green;
-    } else if (currentPrice > lastPrice) {
+      diffText = _formatCurrency(difference.abs());
+    } else if (difference > 0.001) {
       icon = Icons.arrow_upward;
       color = Colors.red;
+      diffText = '+${_formatCurrency(difference.abs())}';
     } else {
       icon = Icons.remove;
       color = Colors.grey;
+      diffText = _formatCurrency(0.0);
     }
 
     return InkWell(
-      onTap: () => _showPriceHistoryDialog(product, history),
-      child: Chip(
-        avatar: Icon(icon, color: color, size: 16),
-        label: Text(_formatCurrency(currentPrice)),
-        backgroundColor: color.withOpacity(0.1),
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        labelPadding: const EdgeInsets.only(left: 2),
-        side: BorderSide(color: color.withOpacity(0.3)),
+      onTap: () => _showPriceHistoryDialog(product, fullHistory),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 2),
+            Text(
+              diffText,
+              style: TextStyle(
+                color: color,
+                fontWeight: FontWeight.bold,
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   void _showPriceHistoryDialog(
       Product product, List<PriceHistoryData> history) {
+    final displayHistory =
+        history.length > 5 ? history.sublist(history.length - 5) : history;
+
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Histórico de Preços: ${product.name}'),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Histórico de Preços: ${product.name}',
+                  style: const TextStyle(fontSize: 18)),
+              const Text(
+                'Comparação baseada nas últimas 5 compras',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.normal,
+                    color: Colors.grey),
+              ),
+            ],
+          ),
           content: SizedBox(
             width: double.maxFinite,
             child: PriceHistoryChart(
-              history: history,
+              history: displayHistory,
               productName: product.name,
             ),
           ),

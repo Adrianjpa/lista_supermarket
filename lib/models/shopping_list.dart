@@ -14,19 +14,20 @@ class ShoppingList extends HiveObject {
   int colorValue;
 
   @HiveField(3)
-  DateTime createdAt; // <-- NOVO CAMPO ADICIONADO
+  DateTime createdAt;
 
   @HiveField(4)
-  DateTime updatedAt; // <-- NOVO CAMPO ADICIONADO
+  DateTime updatedAt;
 
   @HiveField(5)
-  double budget; // <-- NOVO CAMPO ADICIONADO
+  double budget;
 
   ShoppingList({
     required this.name,
     this.archived = false,
-    this.colorValue = 0xFF4CAF50, // Verde padrão
-    this.budget = 0.0, // Orçamento padrão é 0
+    // --- MELHORIA: A COR PADRÃO AGORA É BRANCA ---
+    this.colorValue = 0xFFFFFFFF,
+    this.budget = 0.0,
   })  : createdAt = DateTime.now(),
         updatedAt = DateTime.now();
 }

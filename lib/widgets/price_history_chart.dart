@@ -13,6 +13,14 @@ class PriceHistoryChart extends StatelessWidget {
     required this.productName,
   });
 
+  // Função auxiliar para determinar a cor do texto em contraste com o fundo
+  Color getTextColorForBackground(Color backgroundColor) {
+    return ThemeData.estimateBrightnessForColor(backgroundColor) ==
+            Brightness.dark
+        ? Colors.white
+        : Colors.black;
+  }
+
   @override
   Widget build(BuildContext context) {
     final formatCurrency =
@@ -23,23 +31,41 @@ class PriceHistoryChart extends StatelessWidget {
           child: Text('Sem histórico de preços para este produto.'));
     }
 
-    return AspectRatio(
-      aspectRatio: 1.7,
+    // Lógica de cores e valores do gráfico
+    final prices = history.map((h) => h.price).toList();
+    final minPrice = prices.reduce((a, b) => a < b ? a : b);
+    final maxPrice = prices.reduce((a, b) => a > b ? a : b);
+    final maxY = maxPrice * 1.3;
+
+    return SizedBox(
+      height: 250,
+      width: double.infinity,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
         child: BarChart(
           BarChartData(
-            alignment: BarChartAlignment.spaceAround,
+            maxY: maxY,
+            alignment: BarChartAlignment.spaceBetween,
             barGroups: history.asMap().entries.map((entry) {
               final index = entry.key;
               final data = entry.value;
+
+              Color barColor;
+              if (history.length > 1 && data.price <= minPrice) {
+                barColor = Colors.green;
+              } else if (history.length > 1 && data.price >= maxPrice) {
+                barColor = Colors.red;
+              } else {
+                barColor = Colors.blue.shade700;
+              }
+
               return BarChartGroupData(
                 x: index,
                 barRods: [
                   BarChartRodData(
                     toY: data.price,
-                    color: Colors.green,
-                    width: 15,
+                    color: barColor,
+                    width: 35,
                     borderRadius: BorderRadius.circular(4),
                   ),
                 ],
@@ -49,8 +75,11 @@ class PriceHistoryChart extends StatelessWidget {
               leftTitles: AxisTitles(
                 sideTitles: SideTitles(
                   showTitles: true,
-                  reservedSize: 40,
+                  reservedSize: 45,
                   getTitlesWidget: (value, meta) {
+                    if (value == meta.max || value == 0) {
+                      return const Text('');
+                    }
                     return Text(formatCurrency.format(value),
                         style: const TextStyle(fontSize: 10));
                   },
@@ -63,12 +92,23 @@ class PriceHistoryChart extends StatelessWidget {
                   getTitlesWidget: (value, meta) {
                     final index = value.toInt();
                     if (index >= 0 && index < history.length) {
+                      final data = history[index];
                       return SideTitleWidget(
                         axisSide: meta.axisSide,
-                        space: 4,
-                        child: Text(
-                          DateFormat('dd/MM').format(history[index].date),
-                          style: const TextStyle(fontSize: 10),
+                        space: 8,
+                        child: Tooltip(
+                          message: data.listName,
+                          child: SizedBox(
+                            width: 35,
+                            child: Text(
+                              data.listName,
+                              style: const TextStyle(
+                                fontSize: 10,
+                              ),
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ),
                       );
                     }
@@ -76,27 +116,49 @@ class PriceHistoryChart extends StatelessWidget {
                   },
                 ),
               ),
-              topTitles:
-                  const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              topTitles: AxisTitles(
+                sideTitles: SideTitles(
+                  showTitles: true,
+                  reservedSize: 22,
+                  getTitlesWidget: (value, meta) {
+                    final index = value.toInt();
+                    String text = '';
+                    if (index >= 0 && index < history.length) {
+                      text = formatCurrency.format(history[index].price);
+                    }
+                    return SideTitleWidget(
+                      axisSide: meta.axisSide,
+                      space: 4,
+                      child: Text(text,
+                          style: const TextStyle(
+                              fontSize: 10, fontWeight: FontWeight.bold)),
+                    );
+                  },
+                ),
+              ),
               rightTitles:
                   const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             ),
             borderData: FlBorderData(show: false),
-            gridData: const FlGridData(show: true, drawVerticalLine: false),
+            // --- CORREÇÃO APLICADA: 'const' removido ---
+            gridData: FlGridData(
+              show: true,
+              drawVerticalLine: false,
+              checkToShowHorizontalLine: (value) => value != 0,
+            ),
             barTouchData: BarTouchData(
               touchTooltipData: BarTouchTooltipData(
-                // --- CORREÇÃO APLICADA AQUI ---
-                // O parâmetro 'tooltipBgColor' foi substituído pela função 'getTooltipColor'.
+                // --- CORREÇÃO APLICADA: Usando getTooltipColor ---
                 getTooltipColor: (BarChartGroupData group) => Colors.blueGrey,
                 getTooltipItem: (group, groupIndex, rod, rodIndex) {
                   final data = history[group.x];
                   return BarTooltipItem(
-                    '${formatCurrency.format(data.price)}\n',
+                    '${data.listName}\n',
                     const TextStyle(
                         color: Colors.white, fontWeight: FontWeight.bold),
                     children: <TextSpan>[
                       TextSpan(
-                        text: DateFormat('dd/MM/yyyy').format(data.date),
+                        text: formatCurrency.format(data.price),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
