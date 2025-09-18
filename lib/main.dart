@@ -101,7 +101,6 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Lista Supermarket',
           themeMode: themeProvider.themeMode,
-          // --- MELHORIA: TEMA CLARO COM CABEÇALHO VERDE ---
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
                 seedColor: Colors.green, brightness: Brightness.light),
@@ -111,7 +110,6 @@ class MyApp extends StatelessWidget {
             ),
             useMaterial3: true,
           ),
-          // --- MELHORIA: TEMA ESCURO COM CABEÇALHO VERDE ---
           darkTheme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
                 seedColor: Colors.green, brightness: Brightness.dark),
@@ -169,7 +167,9 @@ class _ListsPageState extends State<ListsPage> {
     list.delete();
   }
 
-  void _duplicateList(ShoppingList list) {
+  // --- FUNÇÃO DE DUPLICAR ATUALIZADA ---
+  void _duplicateList(ShoppingList list,
+      {required bool withPrices, required bool withQuantities}) {
     final productsBox = Hive.box<Product>('productsBox');
     final newList =
         ShoppingList(name: '${list.name} (Cópia)', colorValue: list.colorValue);
@@ -185,8 +185,10 @@ class _ListsPageState extends State<ListsPage> {
             name: product.name,
             description: product.description,
             listKey: newList.key,
-            quantity: product.quantity,
-            price: product.price,
+            quantity: withQuantities
+                ? product.quantity
+                : 1.0, // Reseta a quantidade para 1 se a opção for escolhida
+            price: withPrices ? product.price : 0.0,
             unit: product.unit,
             bought: false,
             sortOrder: product.sortOrder));
@@ -207,6 +209,40 @@ class _ListsPageState extends State<ListsPage> {
   void _restoreList(ShoppingList list) {
     list.archived = false;
     _updateListTimestamp(list);
+  }
+
+  // --- DIÁLOGO DE DUPLICAÇÃO ATUALIZADO ---
+  void _showDuplicateOptionsDialog(ShoppingList list) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Opções de Duplicação'),
+        content: const Text('Como deseja duplicar a lista?'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _duplicateList(list, withPrices: true, withQuantities: true);
+            },
+            child: const Text('Completa (com preços)'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _duplicateList(list, withPrices: false, withQuantities: true);
+            },
+            child: const Text('Sem preços'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _duplicateList(list, withPrices: false, withQuantities: false);
+            },
+            child: const Text('Apenas os produtos'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -327,7 +363,7 @@ class _ListsPageState extends State<ListsPage> {
                 list: list,
                 onEdit: (newName) => _editList(list, newName),
                 onDelete: () => _deleteList(list),
-                onDuplicate: () => _duplicateList(list),
+                onDuplicate: () => _showDuplicateOptionsDialog(list),
                 onArchive: () => _archiveList(list),
                 onChangeColor: (color) => _changeListColor(list, color),
                 onSetBudget: (budget) => _setBudget(list, budget),
