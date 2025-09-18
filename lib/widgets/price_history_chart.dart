@@ -6,11 +6,14 @@ import '../models/product_history.dart';
 class PriceHistoryChart extends StatelessWidget {
   final List<PriceHistoryData> history;
   final String productName;
+  // --- PARÂMETRO ADICIONADO PARA CORREÇÃO ---
+  final String currentListName;
 
   const PriceHistoryChart({
     super.key,
     required this.history,
     required this.productName,
+    required this.currentListName, // Adicionado ao construtor
   });
 
   // Função auxiliar para determinar a cor do texto em contraste com o fundo
@@ -93,6 +96,10 @@ class PriceHistoryChart extends StatelessWidget {
                     final index = value.toInt();
                     if (index >= 0 && index < history.length) {
                       final data = history[index];
+                      // --- LÓGICA ATUALIZADA PARA MOSTRAR "ATUAL" ---
+                      final title = data.listName == currentListName
+                          ? 'ATUAL'
+                          : data.listName;
                       return SideTitleWidget(
                         axisSide: meta.axisSide,
                         space: 8,
@@ -101,9 +108,13 @@ class PriceHistoryChart extends StatelessWidget {
                           child: SizedBox(
                             width: 35,
                             child: Text(
-                              data.listName,
-                              style: const TextStyle(
+                              title,
+                              style: TextStyle(
                                 fontSize: 10,
+                                // Coloca o "ATUAL" em negrito
+                                fontWeight: data.listName == currentListName
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
                               ),
                               textAlign: TextAlign.center,
                               overflow: TextOverflow.ellipsis,
@@ -140,7 +151,6 @@ class PriceHistoryChart extends StatelessWidget {
                   const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             ),
             borderData: FlBorderData(show: false),
-            // --- CORREÇÃO APLICADA: 'const' removido ---
             gridData: FlGridData(
               show: true,
               drawVerticalLine: false,
@@ -148,7 +158,6 @@ class PriceHistoryChart extends StatelessWidget {
             ),
             barTouchData: BarTouchData(
               touchTooltipData: BarTouchTooltipData(
-                // --- CORREÇÃO APLICADA: Usando getTooltipColor ---
                 getTooltipColor: (BarChartGroupData group) => Colors.blueGrey,
                 getTooltipItem: (group, groupIndex, rod, rodIndex) {
                   final data = history[group.x];

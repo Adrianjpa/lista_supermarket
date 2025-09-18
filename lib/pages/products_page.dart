@@ -66,32 +66,7 @@ class _ProductsPageState extends State<ProductsPage> {
     _updateListTimestamp();
   }
 
-  void _deleteProduct(Product product, {bool showUndo = false}) {
-    if (showUndo) {
-      final productCopy = Product(
-        name: product.name,
-        listKey: product.listKey,
-        sortOrder: product.sortOrder,
-        bought: product.bought,
-        description: product.description,
-        price: product.price,
-        quantity: product.quantity,
-        unit: product.unit,
-      );
-      ScaffoldMessenger.of(context)
-        ..removeCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(
-            content: Text('${product.name} removido.'),
-            action: SnackBarAction(
-              label: 'DESFAZER',
-              onPressed: () {
-                _addProduct(productCopy);
-              },
-            ),
-          ),
-        );
-    }
+  void _deleteProduct(Product product) {
     product.delete();
     _updateListTimestamp();
   }
@@ -135,27 +110,44 @@ class _ProductsPageState extends State<ProductsPage> {
     return history;
   }
 
-  Color getTextColor(Color backgroundColor) {
-    return backgroundColor.computeLuminance() > 0.5
-        ? Colors.black
-        : Colors.white;
-  }
-
   String _formatCurrency(double value) {
     return NumberFormat.currency(locale: 'pt_BR', symbol: 'R\$').format(value);
   }
 
+  void _showDeleteConfirmationDialog(Product product) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirmar Exclusão'),
+          content: Text('Tem a certeza de que quer excluir "${product.name}"?'),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancelar'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Excluir', style: TextStyle(color: Colors.red)),
+              onPressed: () {
+                _deleteProduct(product);
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final color = Color(currentList.colorValue);
-    final textColor = getTextColor(color);
     final isPremium = Provider.of<PremiumProvider>(context).isPremium;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(currentList.name),
-        backgroundColor: color,
-        foregroundColor: textColor,
         actions: [
           IconButton(
             tooltip: 'Gerar PDF da Lista',
@@ -202,14 +194,10 @@ class _ProductsPageState extends State<ProductsPage> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
-                    color: Theme.of(context).cardColor,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.1),
-                        blurRadius: 8,
-                        offset: const Offset(0, -2),
-                      )
-                    ]),
+                    color: Theme.of(context).scaffoldBackgroundColor,
+                    border: Border(
+                        bottom:
+                            BorderSide(color: Colors.grey.withOpacity(0.2)))),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -243,8 +231,8 @@ class _ProductsPageState extends State<ProductsPage> {
       floatingActionButton: widget.isReadOnly
           ? null
           : FloatingActionButton.extended(
-              backgroundColor: color,
-              foregroundColor: textColor,
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
               icon: const Icon(Icons.add),
               label: const Text("Novo Produto"),
               onPressed: () {
@@ -264,104 +252,116 @@ class _ProductsPageState extends State<ProductsPage> {
 
     final formattedQuantity = (product.quantity == product.quantity.truncate())
         ? product.quantity.toInt().toString()
-        : product.quantity.toString();
+        : product.quantity.toString().replaceAll('.', ',');
+
+    Color cardColor;
+    if (product.bought) {
+      cardColor = Theme.of(context).brightness == Brightness.dark
+          ? Colors.grey.shade800
+          : Colors.grey.shade300;
+    } else {
+      cardColor = Theme.of(context).brightness == Brightness.dark
+          ? const Color(0xFF1E1E1E)
+          : Colors.white;
+    }
 
     return AbsorbPointer(
       key: key,
       absorbing: widget.isReadOnly,
-      child: Dismissible(
-        key: ValueKey('dismiss_${product.key}'),
-        background: Container(
-          color: Colors.green,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          alignment: Alignment.centerLeft,
-          child: const Icon(Icons.check, color: Colors.white),
-        ),
-        secondaryBackground: Container(
-          color: Colors.red,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          alignment: Alignment.centerRight,
-          child: const Icon(Icons.delete_forever, color: Colors.white),
-        ),
-        confirmDismiss: (direction) async {
-          if (direction == DismissDirection.startToEnd) {
-            _toggleBought(product);
-            return false;
-          } else {
-            _deleteProduct(product, showUndo: true);
-            return true;
-          }
-        },
-        child: Card(
-          color: product.bought
-              ? (Theme.of(context).brightness == Brightness.dark
-                  ? Colors.grey.shade800
-                  : Colors.grey.shade300)
-              : Theme.of(context).cardColor,
-          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: ListTile(
-            onTap: () {
+      child: Card(
+        color: cardColor,
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: ListTile(
+          onTap: () {
+            if (!widget.isReadOnly)
+              _showAddOrEditProductDialog(product: product);
+          },
+          onLongPress: () {
+            if (!widget.isReadOnly) _showDeleteConfirmationDialog(product);
+          },
+          contentPadding: const EdgeInsets.only(left: 0, right: 8),
+          horizontalTitleGap: 0,
+          leading: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               if (!widget.isReadOnly)
-                _showAddOrEditProductDialog(product: product);
-            },
-            leading: ReorderableDragStartListener(
-              index: index,
-              child: Icon(Icons.drag_handle,
-                  color: widget.isReadOnly ? Colors.transparent : null),
-            ),
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$formattedQuantity ${product.unit} - ${product.name}',
-                  style: TextStyle(
-                    fontSize: 16,
-                    decoration:
-                        product.bought ? TextDecoration.lineThrough : null,
-                    color: product.bought
-                        ? Colors.grey.shade600
-                        : Theme.of(context).textTheme.bodyLarge?.color,
+                ReorderableDragStartListener(
+                  index: index,
+                  child: const Padding(
+                    padding: EdgeInsets.fromLTRB(8, 8, 4, 8),
+                    child: Icon(Icons.drag_handle),
                   ),
                 ),
-                if (product.description.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Text(
-                      product.description,
-                      style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                          fontStyle: FontStyle.italic),
-                    ),
+              Checkbox(
+                visualDensity: VisualDensity.compact,
+                value: product.bought,
+                onChanged: widget.isReadOnly
+                    ? null
+                    : (value) => _toggleBought(product),
+                activeColor: Colors.green,
+              ),
+            ],
+          ),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$formattedQuantity ${product.unit}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  fontStyle: FontStyle.normal,
+                ),
+              ),
+              Text(
+                product.name,
+                style: TextStyle(
+                  fontSize: 16,
+                  decoration:
+                      product.bought ? TextDecoration.lineThrough : null,
+                  color: product.bought
+                      ? Colors.grey.shade600
+                      : Theme.of(context).textTheme.bodyLarge?.color,
+                ),
+              ),
+              if (product.description.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4.0),
+                  child: Text(
+                    product.description,
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                        fontStyle: FontStyle.italic),
                   ),
-              ],
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isPremium) _buildPriceComparisonBadge(product),
-                const SizedBox(width: 4),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
+                ),
+            ],
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isPremium) _buildPriceComparisonBadge(product),
+              const SizedBox(width: 4),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _formatCurrency(totalItemPrice),
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: Theme.of(context).textTheme.bodyLarge?.color),
+                  ),
+                  if (product.price > 0)
                     Text(
-                      _formatCurrency(totalItemPrice),
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                          color: Theme.of(context).textTheme.bodyLarge?.color),
-                    ),
-                    if (product.price > 0)
-                      Text(
-                        '${_formatCurrency(pricePerUnit)}/$priceUnitLabel',
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade600),
-                      )
-                  ],
-                ),
-              ],
-            ),
+                      '${_formatCurrency(pricePerUnit)}/$priceUnitLabel',
+                      style:
+                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    )
+                ],
+              ),
+            ],
           ),
         ),
       ),
@@ -379,7 +379,6 @@ class _ProductsPageState extends State<ProductsPage> {
 
     if (currentIndex == -1) return const SizedBox.shrink();
 
-    // Compara sempre com a compra imediatamente anterior.
     if (currentIndex == 0) return const SizedBox.shrink();
 
     final priceToCompare = fullHistory[currentIndex - 1].price;
@@ -405,7 +404,7 @@ class _ProductsPageState extends State<ProductsPage> {
     }
 
     return InkWell(
-      onTap: () => _showPriceHistoryDialog(product, fullHistory),
+      onTap: () => _showPriceHistoryDialog(product, fullHistory, difference),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4.0),
         child: Row(
@@ -427,10 +426,47 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
+  // --- LÓGICA DO GRÁFICO ATUALIZADA ---
   void _showPriceHistoryDialog(
-      Product product, List<PriceHistoryData> history) {
-    final displayHistory =
-        history.length > 5 ? history.sublist(history.length - 5) : history;
+      Product product, List<PriceHistoryData> history, double difference) {
+    // Encontra o índice da lista atual no histórico completo.
+    final currentIndex =
+        history.indexWhere((h) => h.listName == currentList.name);
+
+    List<PriceHistoryData> displayHistory;
+
+    if (currentIndex != -1) {
+      // Calcula o ponto de partida para a janela de 5 itens.
+      // Tenta mostrar a lista atual e as 4 anteriores.
+      int startIndex = currentIndex - 4;
+      if (startIndex < 0) {
+        startIndex = 0; // Garante que não ficamos com um índice negativo.
+      }
+      // O ponto final é o índice da lista atual.
+      int endIndex = currentIndex + 1;
+
+      displayHistory = history.sublist(startIndex, endIndex);
+    } else {
+      // Fallback: se por alguma razão a lista atual não for encontrada, mostra as últimas 5.
+      displayHistory =
+          history.length > 5 ? history.sublist(history.length - 5) : history;
+    }
+
+    String summaryText;
+    Color summaryColor;
+
+    if (difference < -0.001) {
+      summaryText =
+          'Economia de ${_formatCurrency(difference.abs())} em relação à última compra.';
+      summaryColor = Colors.green;
+    } else if (difference > 0.001) {
+      summaryText =
+          'Aumento de ${_formatCurrency(difference.abs())} em relação à última compra.';
+      summaryColor = Colors.red;
+    } else {
+      summaryText = 'O preço manteve-se estável desde a última compra.';
+      summaryColor = Colors.grey;
+    }
 
     showDialog(
       context: context,
@@ -441,8 +477,9 @@ class _ProductsPageState extends State<ProductsPage> {
             children: [
               Text('Histórico de Preços: ${product.name}',
                   style: const TextStyle(fontSize: 18)),
+              // --- MUDANÇA DE TEXTO AQUI ---
               const Text(
-                'Comparação baseada nas últimas 5 compras',
+                'Baseado nas últimas compras',
                 style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.normal,
@@ -450,12 +487,27 @@ class _ProductsPageState extends State<ProductsPage> {
               ),
             ],
           ),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: PriceHistoryChart(
-              history: displayHistory,
-              productName: product.name,
-            ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: double.maxFinite,
+                child: PriceHistoryChart(
+                  history: displayHistory,
+                  productName: product.name,
+                  currentListName: currentList.name,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                summaryText,
+                style: TextStyle(
+                    color: summaryColor,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14),
+                textAlign: TextAlign.center,
+              ),
+            ],
           ),
           actions: [
             TextButton(

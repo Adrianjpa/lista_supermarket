@@ -13,9 +13,11 @@ class _SuggestionsPageState extends State<SuggestionsPage> {
   final Box<CustomSuggestion> suggestionsBox =
       Hive.box<CustomSuggestion>('customSuggestionsBox');
 
+  bool _isSelectionMode = false;
+  final Set<int> _selectedKeys = <int>{};
+
   void _addSuggestion(String name) {
     if (name.trim().isEmpty) return;
-    // Evita adicionar sugestões duplicadas
     if (suggestionsBox.values
         .any((s) => s.name.toLowerCase() == name.trim().toLowerCase())) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -27,23 +29,73 @@ class _SuggestionsPageState extends State<SuggestionsPage> {
     suggestionsBox.add(suggestion);
   }
 
+  void _editSuggestion(CustomSuggestion suggestion, String newName) {
+    if (newName.trim().isEmpty || newName.trim() == suggestion.name) return;
+    suggestion.name = newName.trim();
+    suggestion.save();
+  }
+
   void _deleteSuggestion(CustomSuggestion suggestion) {
     suggestion.delete();
   }
 
-  void _showAddSuggestionDialog() {
-    final controller = TextEditingController();
+  void _deleteSelectedSuggestions() {
+    for (var key in _selectedKeys.toList()) {
+      suggestionsBox.delete(key);
+    }
+    setState(() {
+      _isSelectionMode = false;
+      _selectedKeys.clear();
+    });
+  }
+
+  // --- NOVA FUNÇÃO DE CONFIRMAÇÃO DE EXCLUSÃO ---
+  void _showDeleteConfirmationDialog(
+      {required String title,
+      required String content,
+      required VoidCallback onConfirm}) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(title),
+          content: Text(content),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Cancelar'),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+            ),
+            TextButton(
+              child: const Text('Excluir', style: TextStyle(color: Colors.red)),
+              onPressed: () {
+                onConfirm();
+                Navigator.of(context).pop();
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showAddOrEditSuggestionDialog({CustomSuggestion? suggestion}) {
+    final controller = TextEditingController(text: suggestion?.name ?? '');
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Nova Sugestão'),
+        title: Text(suggestion == null ? 'Nova Sugestão' : 'Editar Sugestão'),
         content: TextField(
           controller: controller,
           autofocus: true,
-          decoration:
-              const InputDecoration(labelText: 'Nome do produto frequente'),
+          decoration: const InputDecoration(labelText: 'Nome do produto'),
           onSubmitted: (value) {
-            _addSuggestion(value);
+            if (suggestion == null) {
+              _addSuggestion(value);
+            } else {
+              _editSuggestion(suggestion, value);
+            }
             Navigator.pop(context);
           },
         ),
@@ -54,10 +106,14 @@ class _SuggestionsPageState extends State<SuggestionsPage> {
           ),
           TextButton(
             onPressed: () {
-              _addSuggestion(controller.text);
+              if (suggestion == null) {
+                _addSuggestion(controller.text);
+              } else {
+                _editSuggestion(suggestion, controller.text);
+              }
               Navigator.pop(context);
             },
-            child: const Text('Adicionar'),
+            child: const Text('Salvar'),
           ),
         ],
       ),
@@ -68,7 +124,46 @@ class _SuggestionsPageState extends State<SuggestionsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gerir Sugestões'),
+        title: _isSelectionMode
+            ? Text('${_selectedKeys.length} selecionado(s)')
+            : const Text('Gerir Sugestões'),
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () {
+                  setState(() {
+                    _isSelectionMode = false;
+                    _selectedKeys.clear();
+                  });
+                },
+              )
+            : null,
+        actions: [
+          if (_isSelectionMode)
+            IconButton(
+              icon: const Icon(Icons.delete_sweep_outlined),
+              // --- MELHORIA: CHAMA O DIÁLOGO DE CONFIRMAÇÃO ---
+              onPressed: _selectedKeys.isEmpty
+                  ? null
+                  : () {
+                      _showDeleteConfirmationDialog(
+                        title: 'Excluir Sugestões',
+                        content:
+                            'Tem a certeza de que quer excluir as ${_selectedKeys.length} sugestões selecionadas?',
+                        onConfirm: _deleteSelectedSuggestions,
+                      );
+                    },
+            )
+          else
+            TextButton(
+              onPressed: () {
+                setState(() {
+                  _isSelectionMode = true;
+                });
+              },
+              child: const Text('Selecionar'),
+            ),
+        ],
       ),
       body: ValueListenableBuilder(
         valueListenable: suggestionsBox.listenable(),
@@ -90,21 +185,81 @@ class _SuggestionsPageState extends State<SuggestionsPage> {
             itemCount: suggestions.length,
             itemBuilder: (context, index) {
               final suggestion = suggestions[index];
+              final isSelected = _selectedKeys.contains(suggestion.key);
+
               return ListTile(
+                onTap: () {
+                  if (_isSelectionMode) {
+                    setState(() {
+                      if (isSelected) {
+                        _selectedKeys.remove(suggestion.key);
+                      } else {
+                        _selectedKeys.add(suggestion.key as int);
+                      }
+                    });
+                  } else {
+                    _showAddOrEditSuggestionDialog(suggestion: suggestion);
+                  }
+                },
+                onLongPress: () {
+                  if (!_isSelectionMode) {
+                    setState(() {
+                      _isSelectionMode = true;
+                      _selectedKeys.add(suggestion.key as int);
+                    });
+                  }
+                },
+                leading: _isSelectionMode
+                    ? Checkbox(
+                        value: isSelected,
+                        onChanged: (bool? value) {
+                          setState(() {
+                            if (value == true) {
+                              _selectedKeys.add(suggestion.key as int);
+                            } else {
+                              _selectedKeys.remove(suggestion.key);
+                            }
+                          });
+                        },
+                      )
+                    : null,
                 title: Text(suggestion.name),
-                trailing: IconButton(
-                  icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
-                  onPressed: () => _deleteSuggestion(suggestion),
-                ),
+                trailing: !_isSelectionMode
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => _showAddOrEditSuggestionDialog(
+                                suggestion: suggestion),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.delete_outline,
+                                color: Colors.red.shade400),
+                            // --- MELHORIA: CHAMA O DIÁLOGO DE CONFIRMAÇÃO ---
+                            onPressed: () {
+                              _showDeleteConfirmationDialog(
+                                title: 'Excluir Sugestão',
+                                content:
+                                    'Tem a certeza de que quer excluir "${suggestion.name}"?',
+                                onConfirm: () => _deleteSuggestion(suggestion),
+                              );
+                            },
+                          ),
+                        ],
+                      )
+                    : null,
               );
             },
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showAddSuggestionDialog,
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton: _isSelectionMode
+          ? null
+          : FloatingActionButton(
+              onPressed: () => _showAddOrEditSuggestionDialog(),
+              child: const Icon(Icons.add),
+            ),
     );
   }
 }

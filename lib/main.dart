@@ -101,6 +101,7 @@ class MyApp extends StatelessWidget {
         return MaterialApp(
           title: 'Lista Supermarket',
           themeMode: themeProvider.themeMode,
+          // --- MELHORIA: TEMA CLARO COM CABEÇALHO VERDE ---
           theme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
                 seedColor: Colors.green, brightness: Brightness.light),
@@ -110,6 +111,7 @@ class MyApp extends StatelessWidget {
             ),
             useMaterial3: true,
           ),
+          // --- MELHORIA: TEMA ESCURO COM CABEÇALHO VERDE ---
           darkTheme: ThemeData(
             colorScheme: ColorScheme.fromSeed(
                 seedColor: Colors.green, brightness: Brightness.dark),
