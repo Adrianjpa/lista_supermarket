@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timeago/timeago.dart' as timeago;
 import 'package:flutter_svg/flutter_svg.dart';
+import 'utils/backup_restore_service.dart';
 
 import 'models/shopping_list.dart';
 import 'models/product.dart';
@@ -135,6 +136,7 @@ class ListsPage extends StatefulWidget {
 
 class _ListsPageState extends State<ListsPage> {
   final Box<ShoppingList> listsBox = Hive.box<ShoppingList>('listsBox');
+  final BackupRestoreService _backupRestoreService = BackupRestoreService();
 
   void _updateListTimestamp(ShoppingList list) {
     list.updatedAt = DateTime.now();
@@ -167,7 +169,6 @@ class _ListsPageState extends State<ListsPage> {
     list.delete();
   }
 
-  // --- FUNÇÃO DE DUPLICAR ATUALIZADA ---
   void _duplicateList(ShoppingList list,
       {required bool withPrices, required bool withQuantities}) {
     final productsBox = Hive.box<Product>('productsBox');
@@ -185,9 +186,7 @@ class _ListsPageState extends State<ListsPage> {
             name: product.name,
             description: product.description,
             listKey: newList.key,
-            quantity: withQuantities
-                ? product.quantity
-                : 1.0, // Reseta a quantidade para 1 se a opção for escolhida
+            quantity: withQuantities ? product.quantity : 1.0,
             price: withPrices ? product.price : 0.0,
             unit: product.unit,
             bought: false,
@@ -211,7 +210,6 @@ class _ListsPageState extends State<ListsPage> {
     _updateListTimestamp(list);
   }
 
-  // --- DIÁLOGO DE DUPLICAÇÃO ATUALIZADO ---
   void _showDuplicateOptionsDialog(ShoppingList list) {
     showDialog(
       context: context,
@@ -340,7 +338,24 @@ class _ListsPageState extends State<ListsPage> {
                 Navigator.push(context,
                     MaterialPageRoute(builder: (_) => const SuggestionsPage()));
               },
-            )
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.backup_outlined),
+              title: const Text('Fazer Backup'),
+              onTap: () {
+                Navigator.pop(context);
+                _backupRestoreService.createBackup(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.restore_outlined),
+              title: const Text('Restaurar Backup'),
+              onTap: () {
+                Navigator.pop(context);
+                _backupRestoreService.restoreBackup(context);
+              },
+            ),
           ],
         ),
       ),

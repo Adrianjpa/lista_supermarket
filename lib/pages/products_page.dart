@@ -11,6 +11,9 @@ import '../models/product.dart';
 import '../models/custom_suggestion.dart';
 import '../models/product_history.dart';
 
+// Enum para controlar o estado do filtro
+enum ProductFilter { todos, pendentes, comprados }
+
 class ProductsPage extends StatefulWidget {
   final int listKey;
   final bool isReadOnly;
@@ -31,6 +34,8 @@ class _ProductsPageState extends State<ProductsPage> {
   final Box<CustomSuggestion> suggestionsBox =
       Hive.box<CustomSuggestion>('customSuggestionsBox');
   late ShoppingList currentList;
+
+  ProductFilter _currentFilter = ProductFilter.todos;
 
   @override
   void initState() {
@@ -103,7 +108,7 @@ class _ProductsPageState extends State<ProductsPage> {
       final list = listsBox.get(product.listKey);
       if (list != null) {
         history.add(PriceHistoryData(
-            price: product.price, date: list.updatedAt, listName: list.name));
+            price: product.price, date: list.createdAt, listName: list.name));
       }
     }
     history.sort((a, b) => a.date.compareTo(b.date));
@@ -176,20 +181,61 @@ class _ProductsPageState extends State<ProductsPage> {
       body: ValueListenableBuilder(
         valueListenable: productsBox.listenable(),
         builder: (context, Box<Product> box, _) {
-          final products =
+          final allProducts =
               box.values.where((p) => p.listKey == currentList.key).toList();
 
-          products.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+          allProducts.sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
 
-          if (products.isEmpty) {
-            return const Center(child: Text('Nenhum produto nesta lista.'));
+          final countTodos = allProducts.length;
+          final countPendentes = allProducts.where((p) => !p.bought).length;
+          final countComprados = allProducts.where((p) => p.bought).length;
+
+          final List<Product> filteredProducts;
+          String emptyMessage = 'Nenhum produto nesta lista.';
+
+          switch (_currentFilter) {
+            case ProductFilter.pendentes:
+              filteredProducts = allProducts.where((p) => !p.bought).toList();
+              emptyMessage = 'Nenhum item pendente.';
+              break;
+            case ProductFilter.comprados:
+              filteredProducts = allProducts.where((p) => p.bought).toList();
+              emptyMessage = 'Nenhum item comprado.';
+              break;
+            case ProductFilter.todos:
+              filteredProducts = allProducts;
+              break;
           }
 
-          final totalValue = products.fold<double>(
+          final totalValue = filteredProducts.fold<double>(
               0.0, (sum, p) => sum + _calculateTotalItemPrice(p));
 
           return Column(
             children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: SegmentedButton<ProductFilter>(
+                  // --- CORREÇÃO APLICADA AQUI ---
+                  showSelectedIcon: false, // Remove o ícone de "check"
+                  segments: <ButtonSegment<ProductFilter>>[
+                    ButtonSegment<ProductFilter>(
+                        value: ProductFilter.todos,
+                        label: _buildFilterBadge('Todos', countTodos)),
+                    ButtonSegment<ProductFilter>(
+                        value: ProductFilter.pendentes,
+                        label: _buildFilterBadge('Pendentes', countPendentes)),
+                    ButtonSegment<ProductFilter>(
+                        value: ProductFilter.comprados,
+                        label: _buildFilterBadge('Comprados', countComprados)),
+                  ],
+                  selected: <ProductFilter>{_currentFilter},
+                  onSelectionChanged: (Set<ProductFilter> newSelection) {
+                    setState(() {
+                      _currentFilter = newSelection.first;
+                    });
+                  },
+                ),
+              ),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -201,7 +247,7 @@ class _ProductsPageState extends State<ProductsPage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Total da Lista:',
+                    Text('Total:',
                         style: Theme.of(context).textTheme.titleMedium),
                     Text(_formatCurrency(totalValue),
                         style: Theme.of(context)
@@ -211,19 +257,24 @@ class _ProductsPageState extends State<ProductsPage> {
                   ],
                 ),
               ),
-              Expanded(
-                child: ReorderableListView.builder(
-                  padding: const EdgeInsets.only(bottom: 150, top: 8),
-                  itemCount: products.length,
-                  onReorder: (oldIndex, newIndex) =>
-                      _onReorder(oldIndex, newIndex, products),
-                  itemBuilder: (context, index) {
-                    final product = products[index];
-                    return _buildProductItem(
-                        product, isPremium, index, Key('${product.key}'));
-                  },
+              if (filteredProducts.isEmpty)
+                Expanded(child: Center(child: Text(emptyMessage)))
+              else
+                Expanded(
+                  child: ReorderableListView.builder(
+                    padding: const EdgeInsets.only(bottom: 150, top: 8),
+                    itemCount: filteredProducts.length,
+                    onReorder: _currentFilter == ProductFilter.todos
+                        ? (oldIndex, newIndex) =>
+                            _onReorder(oldIndex, newIndex, filteredProducts)
+                        : (oldIndex, newIndex) {},
+                    itemBuilder: (context, index) {
+                      final product = filteredProducts[index];
+                      return _buildProductItem(
+                          product, isPremium, index, Key('${product.key}'));
+                    },
+                  ),
                 ),
-              ),
             ],
           );
         },
@@ -242,6 +293,42 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
+  Widget _buildFilterBadge(String label, int count) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          child: Text(label),
+        ),
+        if (count > 0)
+          Positioned(
+            top: -8,
+            right: -8,
+            child: Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(
+                color: Theme.of(context).primaryColor,
+                shape: BoxShape.circle,
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 18,
+                minHeight: 18,
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   Widget _buildProductItem(
       Product product, bool isPremium, int index, Key key) {
     final totalItemPrice = _calculateTotalItemPrice(product);
@@ -250,9 +337,8 @@ class _ProductsPageState extends State<ProductsPage> {
     if (product.unit == 'g') priceUnitLabel = 'kg';
     if (product.unit == 'ml') priceUnitLabel = 'L';
 
-    final formattedQuantity = (product.quantity == product.quantity.truncate())
-        ? product.quantity.toInt().toString()
-        : product.quantity.toString().replaceAll('.', ',');
+    final quantityFormatter = NumberFormat('0.###', 'pt_BR');
+    final formattedQuantity = quantityFormatter.format(product.quantity);
 
     Color cardColor;
     if (product.bought) {
@@ -284,7 +370,7 @@ class _ProductsPageState extends State<ProductsPage> {
           leading: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (!widget.isReadOnly)
+              if (!widget.isReadOnly && _currentFilter == ProductFilter.todos)
                 ReorderableDragStartListener(
                   index: index,
                   child: const Padding(
@@ -374,8 +460,8 @@ class _ProductsPageState extends State<ProductsPage> {
     final fullHistory = _getPriceHistory(product);
     if (fullHistory.length < 2) return const SizedBox.shrink();
 
-    final currentIndex = fullHistory.indexWhere(
-        (h) => h.date == currentList.updatedAt && h.price == product.price);
+    final currentIndex =
+        fullHistory.indexWhere((h) => h.date == currentList.createdAt);
 
     if (currentIndex == -1) return const SizedBox.shrink();
 
@@ -426,28 +512,21 @@ class _ProductsPageState extends State<ProductsPage> {
     );
   }
 
-  // --- LÓGICA DO GRÁFICO ATUALIZADA ---
   void _showPriceHistoryDialog(
       Product product, List<PriceHistoryData> history, double difference) {
-    // Encontra o índice da lista atual no histórico completo.
     final currentIndex =
         history.indexWhere((h) => h.listName == currentList.name);
-
     List<PriceHistoryData> displayHistory;
 
     if (currentIndex != -1) {
-      // Calcula o ponto de partida para a janela de 5 itens.
-      // Tenta mostrar a lista atual e as 4 anteriores.
       int startIndex = currentIndex - 4;
       if (startIndex < 0) {
-        startIndex = 0; // Garante que não ficamos com um índice negativo.
+        startIndex = 0;
       }
-      // O ponto final é o índice da lista atual.
       int endIndex = currentIndex + 1;
 
       displayHistory = history.sublist(startIndex, endIndex);
     } else {
-      // Fallback: se por alguma razão a lista atual não for encontrada, mostra as últimas 5.
       displayHistory =
           history.length > 5 ? history.sublist(history.length - 5) : history;
     }
@@ -477,7 +556,6 @@ class _ProductsPageState extends State<ProductsPage> {
             children: [
               Text('Histórico de Preços: ${product.name}',
                   style: const TextStyle(fontSize: 18)),
-              // --- MUDANÇA DE TEXTO AQUI ---
               const Text(
                 'Baseado nas últimas compras',
                 style: TextStyle(
@@ -524,8 +602,12 @@ class _ProductsPageState extends State<ProductsPage> {
     final formKey = GlobalKey<FormState>();
     final nameController = TextEditingController(text: product?.name);
     final descController = TextEditingController(text: product?.description);
-    final quantityController =
-        TextEditingController(text: product?.quantity.toString() ?? '');
+
+    final quantityFormatter = NumberFormat('0.###', 'pt_BR');
+    String initialQuantityText =
+        product != null ? quantityFormatter.format(product.quantity) : '';
+    final quantityController = TextEditingController(text: initialQuantityText);
+
     final priceController = TextEditingController();
 
     if (product != null && product.price > 0) {
@@ -637,8 +719,10 @@ class _ProductsPageState extends State<ProductsPage> {
           content: StatefulBuilder(
             builder: (BuildContext context, StateSetter setState) {
               String priceLabel = 'Preço (R\$)';
-              if (selectedUnit == 'g') priceLabel = 'Preço (R\$/kg)';
-              if (selectedUnit == 'ml') priceLabel = 'Preço (R\$/L)';
+              if (selectedUnit == 'g' || selectedUnit == 'kg')
+                priceLabel = 'Preço (R\$/kg)';
+              if (selectedUnit == 'ml' || selectedUnit == 'L')
+                priceLabel = 'Preço (R\$/L)';
 
               return Form(
                 key: formKey,
@@ -743,9 +827,31 @@ class _ProductsPageState extends State<ProductsPage> {
                 if (formKey.currentState!.validate()) {
                   final name = nameController.text;
                   final description = descController.text;
-                  final quantity = double.tryParse(
-                          quantityController.text.replaceAll(',', '.')) ??
-                      1.0;
+
+                  final format = NumberFormat.decimalPattern('pt_BR');
+                  double quantity;
+                  try {
+                    quantity = format.parse(quantityController.text).toDouble();
+                  } catch (e) {
+                    quantity = 1.0;
+                  }
+
+                  String finalUnit = selectedUnit;
+
+                  if (selectedUnit == 'kg' && quantity < 1) {
+                    quantity = quantity * 1000;
+                    finalUnit = 'g';
+                  } else if (selectedUnit == 'g' && quantity >= 1000) {
+                    quantity = quantity / 1000;
+                    finalUnit = 'kg';
+                  } else if (selectedUnit == 'L' && quantity < 1) {
+                    quantity = quantity * 1000;
+                    finalUnit = 'ml';
+                  } else if (selectedUnit == 'ml' && quantity >= 1000) {
+                    quantity = quantity / 1000;
+                    finalUnit = 'L';
+                  }
+
                   final priceText =
                       priceController.text.replaceAll(RegExp(r'[^0-9]'), '');
                   final price = (double.tryParse(priceText) ?? 0.0) / 100.0;
@@ -762,12 +868,12 @@ class _ProductsPageState extends State<ProductsPage> {
                       listKey: currentList.key,
                       quantity: quantity,
                       price: price,
-                      unit: selectedUnit,
+                      unit: finalUnit,
                       sortOrder: newSortOrder,
                     ));
                   } else {
-                    _updateProduct(product, name, description, quantity,
-                        selectedUnit, price);
+                    _updateProduct(
+                        product, name, description, quantity, finalUnit, price);
                   }
                   Navigator.pop(context);
                 }
